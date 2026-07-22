@@ -34,15 +34,35 @@ window.Game.Sprites.CircleSprite = {
     ctx.fill();
     ctx.restore();
 
-    // Corps du personnage : un rond, forme simple sans sprite/animation.
+    // Corps du personnage : une boule (dégradé + reflet), forme simple
+    // sans sprite/animation, mais avec un peu de volume.
     ctx.save();
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = color;
+    const bodyGradient = ctx.createRadialGradient(
+      screen.x - radius * 0.35, screen.y - radius * 0.4, radius * 0.1,
+      screen.x, screen.y, radius
+    );
+    bodyGradient.addColorStop(0, '#ffffff');
+    bodyGradient.addColorStop(0.18, color);
+    bodyGradient.addColorStop(1, color);
+    ctx.fillStyle = bodyGradient;
     ctx.fill();
     ctx.lineWidth = isMe ? 3 : 1.5;
     ctx.strokeStyle = isMe ? '#ffffff' : 'rgba(0, 0, 0, 0.4)';
     ctx.stroke();
+    ctx.restore();
+
+    // Petit reflet elliptique en plus, pour accentuer l'effet "boule".
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(
+      screen.x - radius * 0.35, screen.y - radius * 0.4,
+      radius * 0.3, radius * 0.18,
+      -0.6, 0, Math.PI * 2
+    );
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+    ctx.fill();
     ctx.restore();
 
     if (label) {

@@ -42,7 +42,7 @@ window.Game.GameEngine = class GameEngine {
     this.players = new Map();
 
     this.speed = 220; // unités monde / seconde
-    this.worldBound = 1600; // limite douce, en attendant une vraie carte
+    this.map = window.Game.Sprites?.IslandMap || null; // carte + collisions
 
     this._running = false;
     this._rafId = null;
@@ -121,8 +121,15 @@ window.Game.GameEngine = class GameEngine {
 
     const dir = this.input.getDirection();
     if (dir.x !== 0 || dir.y !== 0) {
-      me.x = window.Game.mathUtils.clamp(me.x + dir.x * this.speed * dt, -this.worldBound, this.worldBound);
-      me.y = window.Game.mathUtils.clamp(me.y + dir.y * this.speed * dt, -this.worldBound, this.worldBound);
+      let nextX = me.x + dir.x * this.speed * dt;
+      let nextY = me.y + dir.y * this.speed * dt;
+      if (this.map) {
+        const clamped = this.map.clampToIsland(nextX, nextY);
+        nextX = clamped.x;
+        nextY = clamped.y;
+      }
+      me.x = nextX;
+      me.y = nextY;
       me.targetX = me.x;
       me.targetY = me.y;
       this.network.sendPosition(me.x, me.y);
@@ -138,7 +145,11 @@ window.Game.GameEngine = class GameEngine {
 
   _render() {
     this.renderer.clear();
-    this.renderer.drawGroundGrid();
+    if (this.map) {
+      this.map.draw(this.renderer);
+    } else {
+      this.renderer.drawGroundGrid();
+    }
 
     // Tri peintre : on dessine du fond vers le premier plan pour que les
     // joueurs "plus bas" dans le monde se superposent correctement.
@@ -160,12 +171,12 @@ window.Game.GameEngine = class GameEngine {
 
   _spawnPosition(seedId) {
     // Position de départ déterministe mais variée par joueur, pour que
-    // tout le monde n'apparaisse pas superposé au centre. Remplaçable
-    // plus tard par de vrais points de spawn définis par une carte.
+    // tout le monde n'apparaisse pas superposé au centre.
     const hash = window.Game.mathUtils.hashString(String(seedId));
     const angle = (hash % 360) * (Math.PI / 180);
     const dist = 60 + (hash % 120);
-    return { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist };
+    const spawn = { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist };
+    return this.map ? this.map.clampToIsland(spawn.x, spawn.y) : spawn;
   }
 
   _syncLocalPlayer(session) {
