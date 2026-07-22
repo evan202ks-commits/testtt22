@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Infra Temps Réel — Console</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="topbar__brand">
+      <span class="dot dot--off" id="statusDot"></span>
+      <span class="topbar__title">realtime-comm-infra</span>
+    </div>
+    <div class="topbar__meta">
+      <span class="topbar__label">ID</span>
+      <code id="myUserId">—</code>
+      <span class="topbar__sep">·</span>
+      <span class="topbar__label">Ping</span>
+      <code id="myPing">—</code>
+    </div>
+  </div>
+
+  <main class="layout">
+
+    <!-- ============================================================ -->
+    <!-- ÉCRAN 1 : ACCUEIL — créer ou rejoindre une salle              -->
+    <!-- ============================================================ -->
+    <section id="screen-home" class="screen">
+      <div class="panel panel--intro">
+        <h1>Infrastructure de communication temps réel</h1>
+        <p class="subtitle">
+          Socket.IO · Salles privées · Messages JSON · Ping · Reconnexion automatique.
+          Cette base ne contient aucune règle de jeu — c'est le socle réseau.
+        </p>
+
+        <label class="field-label" for="usernameInput">Pseudo</label>
+        <input id="usernameInput" type="text" placeholder="Ex: Alex" maxlength="24" />
+
+        <div class="actions">
+          <button id="btnCreateRoom" class="btn btn--primary">Créer une salle</button>
+        </div>
+
+        <div class="divider"><span>ou</span></div>
+
+        <label class="field-label" for="roomCodeInput">Code de salle</label>
+        <div class="join-row">
+          <input id="roomCodeInput" type="text" placeholder="ABC123" maxlength="6" autocomplete="off" />
+          <button id="btnJoinRoom" class="btn btn--secondary">Rejoindre la salle</button>
+        </div>
+
+        <p class="error" id="homeError"></p>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- ÉCRAN 2 : SALLE — utilisateurs connectés + chat en temps réel -->
+    <!-- ============================================================ -->
+    <section id="screen-room" class="screen screen--hidden">
+      <div class="room-layout">
+
+        <aside class="panel panel--users">
+          <div class="panel__header">
+            <h2>Salle <code id="roomCodeDisplay">—</code></h2>
+            <button id="btnLeaveRoom" class="btn btn--ghost btn--small">Quitter</button>
+          </div>
+          <ul id="userList" class="user-list"></ul>
+        </aside>
+
+        <div class="panel panel--chat">
+          <div class="panel__header">
+            <h2>Chat de la salle</h2>
+            <button id="btnClearConsole" class="btn btn--ghost btn--small">Effacer</button>
+          </div>
+
+          <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
+
+          <form id="chatForm" class="chat-form">
+            <input id="chatInput" type="text" placeholder="Écrire un message..." autocomplete="off" maxlength="500" />
+            <button type="submit" class="btn btn--primary">Envoyer</button>
+          </form>
+
+          <details id="advancedPanel" class="advanced">
+            <summary>Mode avancé — envoyer des données JSON personnalisées (pour les tests réseau)</summary>
+
+            <form id="sendForm" class="send-form">
+              <div class="send-form__row">
+                <select id="msgTarget">
+                  <option value="broadcast">📢 Diffuser à toute la salle</option>
+                </select>
+                <input id="msgType" type="text" placeholder="type (ex: position, action...)" value="custom" />
+              </div>
+              <div class="send-form__row">
+                <input id="msgPayload" type="text" placeholder='Données JSON, ex: {"x":10,"y":5}' value='{"info":"test"}' />
+                <button type="submit" class="btn btn--secondary">Envoyer les données</button>
+              </div>
+            </form>
+
+            <div class="advanced__log-header">Journal technique (tous les évènements bruts) :</div>
+            <div id="console" class="console" aria-live="polite"></div>
+          </details>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>
