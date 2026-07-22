@@ -541,19 +541,21 @@ kbd {
 }
 
 /* ---------------------------------------------------------------- */
-/* Overlay du mini-jeu — superposé au reste du site (Tab pour ouvrir)*/
+/* Overlay du mini-jeu — c'est la vue PAR DÉFAUT dès qu'on est dans  */
+/* une salle (voir game/main.js, qui bascule --active tout seul).   */
+/* Le chat est superposé PAR-DESSUS via #chatOverlay (Tab).         */
 /* ---------------------------------------------------------------- */
 
 .game-overlay {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 40;
   display: none;
   flex-direction: column;
   background: radial-gradient(circle at 50% 40%, #101c30 0%, #060a12 100%);
 }
 
-.game-overlay--visible {
+.game-overlay--active {
   display: flex;
 }
 
@@ -590,4 +592,37 @@ kbd {
   width: 100%;
   display: block;
   cursor: crosshair;
+}
+
+/* ---------------------------------------------------------------- */
+/* Overlay du chat — flotte par-dessus le jeu, ouvert/fermé avec Tab.*/
+/* Le jeu (canvas + boucle) continue de tourner en dessous, jamais   */
+/* interrompu par l'ouverture du chat.                              */
+/* ---------------------------------------------------------------- */
+
+.chat-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: none;
+  overflow-y: auto;
+  background: rgba(6, 10, 18, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.chat-overlay--active {
+  display: block;
+}
+
+.layout--overlay {
+  min-height: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 20px;
+}
+
+/* La topbar reste lisible au-dessus de tout, jeu comme chat. */
+.topbar {
+  z-index: 80;
 }

@@ -8,25 +8,28 @@
  *     public/client.js (const de plus haut niveau, partagées entre tous
  *     les <script> classiques de la page). On ne les modifie jamais,
  *     seulement lues.
- *   - gère l'ouverture/fermeture du mini-jeu via la touche Tab
- *   - crée/démarre/arrête le GameEngine
- *
- * client.js n'est pas touché : ce fichier ajoute simplement SES PROPRES
- * écouteurs (socket.on peut avoir plusieurs abonnés par évènement), et
- * lit l'état de session déjà maintenu par client.js pour connaître mon
- * identité, mon pseudo et la liste des utilisateurs de la salle.
+ *   - détecte automatiquement l'entrée/sortie de salle en observant la
+ *     classe CSS "screen--hidden" sur #screen-room (déjà gérée par
+ *     client.js) via un MutationObserver — donc sans jamais appeler ni
+ *     modifier client.js.
+ *   - le mini-jeu est la vue PAR DÉFAUT dès qu'on est dans une salle ;
+ *     la touche Tab ouvre/ferme le chat par-dessus, sans jamais stopper
+ *     le jeu qui continue de tourner (et de recevoir les positions des
+ *     autres joueurs) pendant que le chat est ouvert.
  * ----------------------------------------------------------------------
  */
 
 (function initMiniGame() {
   function boot() {
-    const overlay = document.getElementById('gameOverlay');
+    const gameOverlay = document.getElementById('gameOverlay');
+    const chatOverlay = document.getElementById('chatOverlay');
+    const screenRoom = document.getElementById('screen-room');
     const canvas = document.getElementById('gameCanvas');
     const hudCount = document.getElementById('gamePlayerCount');
 
-    if (!overlay || !canvas || typeof socket === 'undefined' || typeof state === 'undefined') {
-      // La page ne contient pas (encore) l'UI du mini-jeu, ou client.js
-      // n'a pas pu s'initialiser : on abandonne proprement.
+    if (!gameOverlay || !chatOverlay || !screenRoom || !canvas || typeof socket === 'undefined' || typeof state === 'undefined') {
+      // La page ne contient pas (encore) l'UI attendue, ou client.js n'a
+      // pas pu s'initialiser : on abandonne proprement.
       return;
     }
 
@@ -43,41 +46,64 @@
       },
     });
 
-    let isOpen = false;
+    let inRoom = false;
+    let chatOpen = false;
 
-    function openGame() {
-      if (!state.roomCode) return; // le jeu n'a de sens que dans une salle
-      isOpen = true;
-      overlay.classList.add('game-overlay--visible');
+    function isCurrentlyInRoom() {
+      return !screenRoom.classList.contains('screen--hidden');
+    }
+
+    function openChat() {
+      if (!inRoom) return;
+      chatOpen = true;
+      chatOverlay.classList.add('chat-overlay--active');
+    }
+
+    function closeChat() {
+      chatOpen = false;
+      chatOverlay.classList.remove('chat-overlay--active');
+    }
+
+    function toggleChat() {
+      if (chatOpen) closeChat();
+      else openChat();
+    }
+
+    function enterRoomMode() {
+      if (inRoom) return;
+      inRoom = true;
+      gameOverlay.classList.add('game-overlay--active');
       engine.start();
+      closeChat(); // le jeu s'affiche en premier, le chat reste fermé par défaut
     }
 
-    function closeGame() {
-      isOpen = false;
-      overlay.classList.remove('game-overlay--visible');
+    function leaveRoomMode() {
+      if (!inRoom) return;
+      inRoom = false;
+      gameOverlay.classList.remove('game-overlay--active');
+      closeChat();
       engine.stop();
+      engine.players.clear();
     }
 
-    function toggleGame() {
-      if (isOpen) closeGame();
-      else openGame();
-    }
+    // Observe les changements de classe de #screen-room (basculée par
+    // client.js à chaque room:create / room:join / room:leave) pour
+    // savoir quand entrer/sortir du mode jeu, sans jamais appeler ni
+    // modifier client.js lui-même.
+    const observer = new MutationObserver(() => {
+      if (isCurrentlyInRoom()) enterRoomMode();
+      else leaveRoomMode();
+    });
+    observer.observe(screenRoom, { attributes: true, attributeFilter: ['class'] });
+
+    // Au cas où la page se charge alors qu'une salle est déjà active
+    // (ex: hot-reload en développement).
+    if (isCurrentlyInRoom()) enterRoomMode();
 
     document.addEventListener('keydown', (e) => {
-      if (e.key !== 'Tab') return;
-      // On ignore Tab tant qu'on n'est pas dans une salle (écran d'accueil).
-      if (!state.roomCode) return;
+      if (e.key !== 'Tab' || !inRoom) return;
       e.preventDefault();
-      toggleGame();
-    });
-
-    // Si l'utilisateur quitte la salle pendant que le jeu est ouvert, on
-    // referme proprement (on observe juste l'écran existant, sans le
-    // modifier).
-    const btnLeaveRoom = document.getElementById('btnLeaveRoom');
-    btnLeaveRoom?.addEventListener('click', () => {
-      if (isOpen) closeGame();
-      engine.players.clear();
+      toggleChat();
     });
   }
 

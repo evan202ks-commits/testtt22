@@ -99,54 +99,16 @@ window.Game.IsoRenderer = class IsoRenderer {
   }
 
   /**
-   * Dessine un joueur comme une forme simple (cercle + ombre + étiquette
-   * de pseudo). Volontairement minimal : c'est le point d'extension prévu
-   * pour brancher plus tard un sprite/une animation à la place du cercle.
+   * Projette la position monde d'un joueur en écran, puis délègue le
+   * dessin lui-même au sprite actif (aujourd'hui un simple rond, défini
+   * dans public/sprites/CircleSprite.js). Le renderer n'a donc plus à
+   * connaître "à quoi ressemble" un personnage : demain, remplacer
+   * `spriteModule` par un sprite animé/à image ne touchera pas ce fichier.
    */
-  drawPlayerMarker({ x, y, radius = 16, color = '#33d6b6', isMe = false, label = '' }) {
-    const ctx = this.ctx;
+  drawPlayerMarker({ x, y, radius = 16, color = '#33d6b6', isMe = false, label = '' }, spriteModule) {
+    const sprite = spriteModule || window.Game.Sprites?.CircleSprite;
     const screen = this.worldToScreen(x, y);
-
-    // Ombre elliptique au sol (renforce la lecture de la perspective iso).
-    ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(screen.x, screen.y + radius * 0.35, radius * 0.9, radius * 0.4, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-    ctx.fill();
-    ctx.restore();
-
-    // Corps : simple cercle.
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-    ctx.lineWidth = isMe ? 3 : 1.5;
-    ctx.strokeStyle = isMe ? '#ffffff' : 'rgba(0, 0, 0, 0.4)';
-    ctx.stroke();
-    ctx.restore();
-
-    // Étiquette de pseudo (rectangle simple + texte).
-    if (label) {
-      ctx.save();
-      ctx.font = '600 12px Inter, system-ui, sans-serif';
-      const padding = 6;
-      const textWidth = ctx.measureText(label).width;
-      const boxWidth = textWidth + padding * 2;
-      const boxHeight = 18;
-      const boxX = screen.x - boxWidth / 2;
-      const boxY = screen.y - radius - boxHeight - 8;
-
-      ctx.fillStyle = 'rgba(10, 15, 26, 0.75)';
-      ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
-
-      ctx.fillStyle = isMe ? '#8fb8ff' : '#dfe6f2';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(label, screen.x, boxY + boxHeight / 2 + 1);
-      ctx.restore();
-    }
-
+    sprite?.draw(this.ctx, screen, { radius, color, isMe, label });
     return screen;
   }
 };

@@ -54,71 +54,85 @@
       </div>
     </section>
 
-    <!-- ============================================================ -->
-    <!-- ÉCRAN 2 : SALLE — utilisateurs connectés + chat en temps réel -->
-    <!-- ============================================================ -->
-    <section id="screen-room" class="screen screen--hidden">
-      <div class="room-layout">
-
-        <aside class="panel panel--users">
-          <div class="panel__header">
-            <h2>Salle <code id="roomCodeDisplay">—</code></h2>
-            <button id="btnLeaveRoom" class="btn btn--ghost btn--small">Quitter</button>
-          </div>
-          <p class="game-hint">🎮 Appuyez sur <kbd>Tab</kbd> pour ouvrir le mini-jeu</p>
-          <ul id="userList" class="user-list"></ul>
-        </aside>
-
-        <div class="panel panel--chat">
-          <div class="panel__header">
-            <h2>Chat de la salle</h2>
-            <button id="btnClearConsole" class="btn btn--ghost btn--small">Effacer</button>
-          </div>
-
-          <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
-
-          <form id="chatForm" class="chat-form">
-            <input id="chatInput" type="text" placeholder="Écrire un message..." autocomplete="off" maxlength="500" />
-            <button type="submit" class="btn btn--primary">Envoyer</button>
-          </form>
-
-          <details id="advancedPanel" class="advanced">
-            <summary>Mode avancé — envoyer des données JSON personnalisées (pour les tests réseau)</summary>
-
-            <form id="sendForm" class="send-form">
-              <div class="send-form__row">
-                <select id="msgTarget">
-                  <option value="broadcast">📢 Diffuser à toute la salle</option>
-                </select>
-                <input id="msgType" type="text" placeholder="type (ex: position, action...)" value="custom" />
-              </div>
-              <div class="send-form__row">
-                <input id="msgPayload" type="text" placeholder='Données JSON, ex: {"x":10,"y":5}' value='{"info":"test"}' />
-                <button type="submit" class="btn btn--secondary">Envoyer les données</button>
-              </div>
-            </form>
-
-            <div class="advanced__log-header">Journal technique (tous les évènements bruts) :</div>
-            <div id="console" class="console" aria-live="polite"></div>
-          </details>
-        </div>
-
-      </div>
-    </section>
-
   </main>
 
   <!-- ============================================================ -->
-  <!-- OVERLAY : mini-jeu 2D (vue isométrique), superposé au chat    -->
-  <!-- Basculé avec la touche Tab — voir public/game/main.js         -->
+  <!-- OVERLAY : mini-jeu 2D (vue isométrique)                        -->
+  <!-- C'est la vue PAR DÉFAUT dès qu'on est dans une salle.          -->
+  <!-- Tab ouvre/ferme le chat par-dessus (voir #chatOverlay).        -->
   <!-- ============================================================ -->
   <div id="gameOverlay" class="game-overlay">
     <div class="game-overlay__hud">
       <span class="game-overlay__title">🎮 Mini-jeu</span>
       <span class="game-overlay__count"><span id="gamePlayerCount">0</span> joueur(s) en ligne</span>
-      <span class="game-overlay__hint">Déplacement : ZQSD / flèches · <kbd>Tab</kbd> pour revenir au chat</span>
+      <span class="game-overlay__hint">Déplacement : ZQSD / flèches · <kbd>Tab</kbd> pour ouvrir le chat</span>
     </div>
     <canvas id="gameCanvas" class="game-overlay__canvas"></canvas>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- OVERLAY : chat + liste des utilisateurs, superposé au jeu.    -->
+  <!-- Fermé par défaut, ouvert avec Tab, sans jamais interrompre    -->
+  <!-- le jeu qui continue de tourner dessous.                      -->
+  <!-- Le contenu de #screen-room lui-même n'est pas modifié : on le -->
+  <!-- déplace seulement dans ce conteneur pour le faire flotter.    -->
+  <!-- ============================================================ -->
+  <div id="chatOverlay" class="chat-overlay">
+    <div class="layout layout--overlay">
+
+      <!-- ============================================================ -->
+      <!-- ÉCRAN 2 : SALLE — utilisateurs connectés + chat en temps réel -->
+      <!-- ============================================================ -->
+      <section id="screen-room" class="screen screen--hidden">
+        <div class="room-layout">
+
+          <aside class="panel panel--users">
+            <div class="panel__header">
+              <h2>Salle <code id="roomCodeDisplay">—</code></h2>
+              <button id="btnLeaveRoom" class="btn btn--ghost btn--small">Quitter</button>
+            </div>
+            <p class="game-hint">🎮 Appuyez sur <kbd>Tab</kbd> pour revenir au jeu</p>
+            <ul id="userList" class="user-list"></ul>
+          </aside>
+
+          <div class="panel panel--chat">
+            <div class="panel__header">
+              <h2>Chat de la salle</h2>
+              <button id="btnClearConsole" class="btn btn--ghost btn--small">Effacer</button>
+            </div>
+
+            <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
+
+            <form id="chatForm" class="chat-form">
+              <input id="chatInput" type="text" placeholder="Écrire un message..." autocomplete="off" maxlength="500" />
+              <button type="submit" class="btn btn--primary">Envoyer</button>
+            </form>
+
+            <details id="advancedPanel" class="advanced">
+              <summary>Mode avancé — envoyer des données JSON personnalisées (pour les tests réseau)</summary>
+
+              <form id="sendForm" class="send-form">
+                <div class="send-form__row">
+                  <select id="msgTarget">
+                    <option value="broadcast">📢 Diffuser à toute la salle</option>
+                  </select>
+                  <input id="msgType" type="text" placeholder="type (ex: position, action...)" value="custom" />
+                </div>
+                <div class="send-form__row">
+                  <input id="msgPayload" type="text" placeholder='Données JSON, ex: {"x":10,"y":5}' value='{"info":"test"}' />
+                  <button type="submit" class="btn btn--secondary">Envoyer les données</button>
+                </div>
+              </form>
+
+              <div class="advanced__log-header">Journal technique (tous les évènements bruts) :</div>
+              <div id="console" class="console" aria-live="polite"></div>
+            </details>
+          </div>
+
+        </div>
+      </section>
+
+    </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -128,6 +142,7 @@
   <!-- Ils se branchent sur `socket` et `state` (définis ci-dessus par-->
   <!-- client.js) sans jamais les modifier.                          -->
   <script src="game/mathUtils.js"></script>
+  <script src="sprites/CircleSprite.js"></script>
   <script src="game/IsoRenderer.js"></script>
   <script src="game/Player.js"></script>
   <script src="game/InputManager.js"></script>
