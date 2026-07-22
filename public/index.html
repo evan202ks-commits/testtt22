@@ -65,6 +65,7 @@
             <h2>Salle <code id="roomCodeDisplay">—</code></h2>
             <button id="btnLeaveRoom" class="btn btn--ghost btn--small">Quitter</button>
           </div>
+          <p class="game-hint">🎮 Appuyez sur <kbd>Tab</kbd> pour ouvrir le mini-jeu</p>
           <ul id="userList" class="user-list"></ul>
         </aside>
 
@@ -107,7 +108,31 @@
 
   </main>
 
+  <!-- ============================================================ -->
+  <!-- OVERLAY : mini-jeu 2D (vue isométrique), superposé au chat    -->
+  <!-- Basculé avec la touche Tab — voir public/game/main.js         -->
+  <!-- ============================================================ -->
+  <div id="gameOverlay" class="game-overlay">
+    <div class="game-overlay__hud">
+      <span class="game-overlay__title">🎮 Mini-jeu</span>
+      <span class="game-overlay__count"><span id="gamePlayerCount">0</span> joueur(s) en ligne</span>
+      <span class="game-overlay__hint">Déplacement : ZQSD / flèches · <kbd>Tab</kbd> pour revenir au chat</span>
+    </div>
+    <canvas id="gameCanvas" class="game-overlay__canvas"></canvas>
+  </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script src="client.js"></script>
+
+  <!-- Mini-jeu : modules chargés dans l'ordre de leurs dépendances.  -->
+  <!-- Ils se branchent sur `socket` et `state` (définis ci-dessus par-->
+  <!-- client.js) sans jamais les modifier.                          -->
+  <script src="game/mathUtils.js"></script>
+  <script src="game/IsoRenderer.js"></script>
+  <script src="game/Player.js"></script>
+  <script src="game/InputManager.js"></script>
+  <script src="game/GameNetwork.js"></script>
+  <script src="game/GameEngine.js"></script>
+  <script src="game/main.js"></script>
 </body>
 </html>

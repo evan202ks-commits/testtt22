@@ -516,3 +516,78 @@ select {
   .room-layout { grid-template-columns: 1fr; }
   .panel--console { min-height: 420px; }
 }
+
+/* ---------------------------------------------------------------- */
+/* Indice Tab (en-tête de la salle)                                  */
+/* ---------------------------------------------------------------- */
+
+.game-hint {
+  margin: 0;
+  padding: 8px 18px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+kbd {
+  font-family: var(--font-mono);
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 11px;
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------- */
+/* Overlay du mini-jeu — superposé au reste du site (Tab pour ouvrir)*/
+/* ---------------------------------------------------------------- */
+
+.game-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: none;
+  flex-direction: column;
+  background: radial-gradient(circle at 50% 40%, #101c30 0%, #060a12 100%);
+}
+
+.game-overlay--visible {
+  display: flex;
+}
+
+.game-overlay__hud {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 20px;
+  background: rgba(10, 15, 26, 0.85);
+  border-bottom: 1px solid var(--border-soft);
+  backdrop-filter: blur(6px);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.game-overlay__title {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.game-overlay__count {
+  color: var(--signal);
+}
+
+.game-overlay__hint {
+  margin-left: auto;
+  color: var(--muted-dim);
+}
+
+.game-overlay__canvas {
+  flex: 1;
+  width: 100%;
+  display: block;
+  cursor: crosshair;
+}
