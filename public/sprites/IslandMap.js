@@ -163,15 +163,13 @@ window.Game.Sprites.IslandMap = {
 
     // Bâtiment principal + touches autour, positions fixes (composition
     // volontaire plutôt qu'aléatoire, pour un vrai petit hameau lisible).
-    decor.push({ x: villageX, y: villageY, type: 'house', seed: 1, scale: 1 });
     decor.push({ x: villageX - 55, y: villageY + 20, type: 'fence', seed: 2, scale: 1 });
     decor.push({ x: villageX - 30, y: villageY + 42, type: 'fence', seed: 3, scale: 1 });
     decor.push({ x: villageX + 50, y: villageY + 15, type: 'chest', seed: 4, scale: 1 });
-    decor.push({ x: 40, y: -20, type: 'sign', seed: 5, scale: 1 });
 
     const typeWeights = [
-      ['tree', 0.42], ['treeBig', 0.10], ['rock', 0.14], ['rockBig', 0.05],
-      ['bush', 0.24], ['sign', 0.02], ['chest', 0.01], ['fence', 0.02],
+      ['rock', 0.14], ['rockBig', 0.05],
+      ['bush', 0.24], ['chest', 0.01], ['fence', 0.02],
     ];
 
     tiles.forEach((tile) => {
@@ -184,7 +182,7 @@ window.Game.Sprites.IslandMap = {
 
       const pick = rng(tile.i, tile.j, this.seed + 173);
       let acc = 0;
-      let chosen = 'tree';
+      let chosen = 'bush';
       for (const [type, weight] of typeWeights) {
         acc += weight;
         if (pick <= acc) { chosen = type; break; }
