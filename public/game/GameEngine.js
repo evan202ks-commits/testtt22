@@ -60,7 +60,18 @@ window.Game.GameEngine = class GameEngine {
 
     this.input.enable();
     window.addEventListener('resize', this._boundResize);
-    this.renderer.resize();
+
+    // The game-overlay transitions from display:none to display:flex just
+    // before start() is called. The canvas clientWidth/Height may still be 0
+    // at this exact tick, so we defer the first resize to the next frame to
+    // let the browser finish the layout pass.
+    requestAnimationFrame(() => {
+      this.renderer.resize();
+      // Also centre the camera on the local player right away so the map
+      // is not stuck at (0,0) on the first frame.
+      const meNow = this.players.get(this.getSessionState()?.myUserId);
+      if (meNow) this.renderer.setCamera(meNow.x, meNow.y);
+    });
 
     // On s'annonce immédiatement pour apparaître tout de suite chez les
     // autres, sans attendre le premier mouvement.

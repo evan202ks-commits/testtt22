@@ -33,13 +33,23 @@ window.Game.IsoRenderer = class IsoRenderer {
   }
 
   resize() {
-    const { clientWidth, clientHeight } = this.canvas;
+    // clientWidth/clientHeight can be 0 if the canvas or its overlay is not yet
+    // visible (display:none). Fall back to the parent element or window size so
+    // the camera math (width/2, height/2) always has a valid reference.
+    const parent = this.canvas.parentElement;
+    let w = this.canvas.clientWidth || this.canvas.offsetWidth;
+    let h = this.canvas.clientHeight || this.canvas.offsetHeight;
+    if (!w && parent) w = parent.clientWidth || parent.offsetWidth;
+    if (!h && parent) h = parent.clientHeight || parent.offsetHeight;
+    if (!w) w = window.innerWidth;
+    if (!h) h = window.innerHeight;
+
     const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = Math.max(1, Math.floor(clientWidth * dpr));
-    this.canvas.height = Math.max(1, Math.floor(clientHeight * dpr));
+    this.canvas.width = Math.max(1, Math.floor(w * dpr));
+    this.canvas.height = Math.max(1, Math.floor(h * dpr));
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.width = clientWidth;
-    this.height = clientHeight;
+    this.width = w;
+    this.height = h;
   }
 
   setCamera(x, y) {
