@@ -14,20 +14,48 @@
       <span class="topbar__title">realtime-comm-infra</span>
     </div>
     <div class="topbar__meta">
-      <span class="topbar__label">ID</span>
-      <code id="myUserId">—</code>
+      <span class="topbar__label">Compte</span>
+      <code id="myUsername">—</code>
       <span class="topbar__sep">·</span>
       <span class="topbar__label">Ping</span>
       <code id="myPing">—</code>
+      <button id="btnLogout" class="btn btn--ghost btn--small topbar__logout">Déconnexion</button>
     </div>
   </div>
 
   <main class="layout">
 
     <!-- ============================================================ -->
+    <!-- ÉCRAN 0 : COMPTE — inscription / connexion                    -->
+    <!-- Affiché tant qu'aucun jeton de session valide n'est présent.  -->
+    <!-- ============================================================ -->
+    <section id="screen-auth" class="screen">
+      <div class="panel panel--intro">
+        <h1>Créer un compte ou se connecter</h1>
+        <p class="subtitle">
+          Un compte simple (pseudo + mot de passe) protège votre pseudo :
+          personne d'autre ne peut se faire passer pour vous dans les salles.
+        </p>
+
+        <label class="field-label" for="authUsernameInput">Pseudo</label>
+        <input id="authUsernameInput" type="text" placeholder="3 à 20 caractères" maxlength="20" autocomplete="username" />
+
+        <label class="field-label" for="authPasswordInput">Mot de passe</label>
+        <input id="authPasswordInput" type="password" placeholder="6 caractères minimum" autocomplete="current-password" />
+
+        <div class="actions">
+          <button id="btnLogin" class="btn btn--primary">Se connecter</button>
+          <button id="btnRegister" class="btn btn--secondary">Créer un compte</button>
+        </div>
+
+        <p class="error" id="authError"></p>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
     <!-- ÉCRAN 1 : ACCUEIL — créer ou rejoindre une salle              -->
     <!-- ============================================================ -->
-    <section id="screen-home" class="screen">
+    <section id="screen-home" class="screen screen--hidden">
       <div class="panel panel--intro">
         <h1>Infrastructure de communication temps réel</h1>
         <p class="subtitle">
@@ -35,8 +63,7 @@
           Cette base ne contient aucune règle de jeu — c'est le socle réseau.
         </p>
 
-        <label class="field-label" for="usernameInput">Pseudo</label>
-        <input id="usernameInput" type="text" placeholder="Ex: Alex" maxlength="24" />
+        <p class="field-label">Connecté en tant que <strong id="homeUsername">—</strong></p>
 
         <div class="actions">
           <button id="btnCreateRoom" class="btn btn--primary">Créer une salle</button>

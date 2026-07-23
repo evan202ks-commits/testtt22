@@ -11,22 +11,24 @@
  */
 
 // ------------------------------------------------------------------
-// Identité persistante — sessionStorage (et non localStorage).
+// Compte — jeton de session persisté en localStorage.
 //
-// IMPORTANT : sessionStorage est isolé PAR ONGLET, alors que localStorage
-// est partagé par tous les onglets d'un même navigateur/origine. Si on
-// utilisait localStorage, deux onglets ouverts pour tester "deux
-// utilisateurs" partageraient le même identifiant et le serveur les
-// confondrait (c'est ce qui causait des messages qui semblaient ne pas
-// arriver en temps réel). Avec sessionStorage, chaque onglet garde sa
-// propre identité stable (survit à un F5) sans se mélanger avec les
-// autres onglets.
+// Contrairement à l'identifiant de socket (qui reste isolé par onglet),
+// le compte est partagé entre tous les onglets d'un même navigateur :
+// c'est le comportement attendu pour une identité de connexion (comme
+// n'importe quel site avec "rester connecté").
 // ------------------------------------------------------------------
-const STORAGE_KEY = 'realtime-infra:userId';
-const storedUserId = sessionStorage.getItem(STORAGE_KEY) || undefined;
+const SESSION_STORAGE_KEY = 'realtime-infra:sessionToken';
 
+// IMPORTANT : `socket` est créé tout de suite (comme avant l'ajout des
+// comptes), avec `autoConnect: false` — il ne se connecte pas au serveur
+// tant qu'on n'a pas de jeton de session valide. On garde volontairement
+// le MÊME objet `socket` du début à la fin (au lieu d'en recréer un après
+// connexion) car public/game/main.js capture cette référence globale dès
+// le chargement de la page pour piloter le mini-jeu ; la recréer plus
+// tard laisserait le jeu accroché à une socket obsolète.
 const socket = io({
-  auth: { userId: storedUserId },
+  autoConnect: false,
   reconnection: true,
   reconnectionDelay: 500,
   reconnectionDelayMax: 4000,
@@ -37,13 +39,21 @@ const socket = io({
 // ------------------------------------------------------------------
 const el = {
   statusDot: document.getElementById('statusDot'),
-  myUserId: document.getElementById('myUserId'),
+  myUsername: document.getElementById('myUsername'),
   myPing: document.getElementById('myPing'),
+  btnLogout: document.getElementById('btnLogout'),
+
+  screenAuth: document.getElementById('screen-auth'),
+  authUsernameInput: document.getElementById('authUsernameInput'),
+  authPasswordInput: document.getElementById('authPasswordInput'),
+  btnLogin: document.getElementById('btnLogin'),
+  btnRegister: document.getElementById('btnRegister'),
+  authError: document.getElementById('authError'),
 
   screenHome: document.getElementById('screen-home'),
   screenRoom: document.getElementById('screen-room'),
 
-  usernameInput: document.getElementById('usernameInput'),
+  homeUsername: document.getElementById('homeUsername'),
   btnCreateRoom: document.getElementById('btnCreateRoom'),
   roomCodeInput: document.getElementById('roomCodeInput'),
   btnJoinRoom: document.getElementById('btnJoinRoom'),
@@ -69,11 +79,127 @@ const el = {
 // État local
 // ------------------------------------------------------------------
 const state = {
-  myUserId: storedUserId || null,
+  myUserId: null,
   myUsername: '',
   roomCode: null,
   users: [], // dernière liste connue des utilisateurs de la salle (avec pseudos)
 };
+
+// ------------------------------------------------------------------
+// Écran de compte — inscription / connexion
+// ------------------------------------------------------------------
+function showAuthScreen(message) {
+  el.screenAuth.classList.remove('screen--hidden');
+  el.screenHome.classList.add('screen--hidden');
+  el.screenRoom.classList.add('screen--hidden');
+  el.authError.textContent = message || '';
+}
+
+async function callAuthApi(path, username, password) {
+  try {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    return await res.json();
+  } catch (err) {
+    return { ok: false, error: 'Impossible de contacter le serveur.' };
+  }
+}
+
+el.btnRegister.addEventListener('click', async () => {
+  el.authError.textContent = '';
+  const username = el.authUsernameInput.value.trim();
+  const password = el.authPasswordInput.value;
+  const result = await callAuthApi('/api/register', username, password);
+  if (!result.ok) {
+    el.authError.textContent = result.error || "Impossible de créer le compte.";
+    return;
+  }
+  onAuthenticated(result.token, result.account.username);
+});
+
+el.btnLogin.addEventListener('click', async () => {
+  el.authError.textContent = '';
+  const username = el.authUsernameInput.value.trim();
+  const password = el.authPasswordInput.value;
+  const result = await callAuthApi('/api/login', username, password);
+  if (!result.ok) {
+    el.authError.textContent = result.error || 'Connexion impossible.';
+    return;
+  }
+  onAuthenticated(result.token, result.account.username);
+});
+
+el.authPasswordInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') el.btnLogin.click();
+});
+
+function onAuthenticated(token, username) {
+  localStorage.setItem(SESSION_STORAGE_KEY, token);
+  state.myUsername = username;
+  el.myUsername.textContent = username;
+  el.homeUsername.textContent = username;
+  el.authPasswordInput.value = '';
+  el.screenAuth.classList.add('screen--hidden');
+  el.screenHome.classList.remove('screen--hidden');
+  connectSocket(token);
+}
+
+el.btnLogout.addEventListener('click', async () => {
+  const token = localStorage.getItem(SESSION_STORAGE_KEY);
+  localStorage.removeItem(SESSION_STORAGE_KEY);
+  try {
+    await fetch('/api/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+  } catch (err) {
+    // Peu importe si l'appel échoue : on efface quand même la session locale.
+  }
+  if (socket) socket.disconnect();
+  state.myUserId = null;
+  state.myUsername = '';
+  state.roomCode = null;
+  el.myUsername.textContent = '—';
+  showAuthScreen();
+});
+
+// ------------------------------------------------------------------
+// Démarrage : jeton existant ? on tente de restaurer la session avant
+// d'afficher quoi que ce soit d'autre que l'écran de compte.
+// ------------------------------------------------------------------
+(async function bootstrap() {
+  const token = localStorage.getItem(SESSION_STORAGE_KEY);
+  if (!token) {
+    showAuthScreen();
+    return;
+  }
+  try {
+    const res = await fetch('/api/me', { headers: { 'X-Session-Token': token } });
+    const data = await res.json();
+    if (data.ok) {
+      onAuthenticated(token, data.account.username);
+      return;
+    }
+  } catch (err) {
+    // Erreur réseau : on retombe sur l'écran de connexion ci-dessous.
+  }
+  localStorage.removeItem(SESSION_STORAGE_KEY);
+  showAuthScreen();
+})();
+
+// ------------------------------------------------------------------
+// Connexion Socket.IO — la socket existe déjà (voir plus haut) ; on ne
+// fait que lui fournir le jeton de session et déclencher la connexion.
+// ------------------------------------------------------------------
+function connectSocket(sessionToken) {
+  socket.auth = { sessionToken };
+  if (socket.connected) socket.disconnect();
+  socket.connect();
+}
 
 function getUsernameById(userId) {
   if (userId === state.myUserId) return state.myUsername || 'Moi';
@@ -152,62 +278,124 @@ function setConnectionStatus(kind) {
   el.statusDot.className = `dot dot--${kind}`; // off | on | warn
 }
 
-socket.on('connect', () => {
-  setConnectionStatus('on');
-  logLine(`Connecté au serveur (socket ${socket.id}).`, 'system');
-});
-
-socket.on('disconnect', (reason) => {
-  setConnectionStatus('warn');
-  logLine(`Connexion perdue (${reason}). Tentative de reconnexion...`, 'error');
-  addChatSystemLine('Connexion perdue, tentative de reconnexion...');
-});
-
-socket.io.on('reconnect_attempt', (attempt) => {
-  logLine(`Reconnexion en cours (essai ${attempt})...`, 'system');
-});
-
-socket.io.on('reconnect', () => {
-  setConnectionStatus('on');
-  logLine('Reconnecté au serveur.', 'system');
-  // Si on était dans une salle, on retente de la rejoindre avec la même
-  // identité pour restaurer la session sans action de l'utilisateur.
-  if (state.roomCode) {
-    socket.emit(
-      'room:join',
-      { roomCode: state.roomCode, username: el.usernameInput.value.trim() },
-      handleJoinResponse
-    );
-  }
-});
-
 // ------------------------------------------------------------------
-// Identité attribuée par le serveur
+// Abonnements aux évènements socket — appelé une fois la socket créée
+// (voir connectSocket ci-dessus), puisque `socket` n'existe pas tant que
+// le compte n'est pas authentifié.
 // ------------------------------------------------------------------
-socket.on('identity', ({ userId, isNewIdentity }) => {
-  state.myUserId = userId;
-  sessionStorage.setItem(STORAGE_KEY, userId);
-  el.myUserId.textContent = userId.replace('usr_', '').slice(0, 8);
-  logLine(
-    isNewIdentity
-      ? `Identifiant attribué : ${userId}`
-      : `Identité restaurée : ${userId}`,
-    'system'
-  );
-});
+function registerSocketHandlers() {
+  socket.on('connect', () => {
+    setConnectionStatus('on');
+    logLine(`Connecté au serveur (socket ${socket.id}).`, 'system');
+  });
+
+  socket.on('disconnect', (reason) => {
+    setConnectionStatus('warn');
+    logLine(`Connexion perdue (${reason}). Tentative de reconnexion...`, 'error');
+    addChatSystemLine('Connexion perdue, tentative de reconnexion...');
+  });
+
+  socket.io.on('reconnect_attempt', (attempt) => {
+    logLine(`Reconnexion en cours (essai ${attempt})...`, 'system');
+  });
+
+  socket.io.on('reconnect', () => {
+    setConnectionStatus('on');
+    logLine('Reconnecté au serveur.', 'system');
+    // Si on était dans une salle, on retente de la rejoindre avec la même
+    // identité pour restaurer la session sans action de l'utilisateur.
+    if (state.roomCode) {
+      socket.emit('room:join', { roomCode: state.roomCode }, handleJoinResponse);
+    }
+  });
+
+  // Le serveur rejette la connexion si le jeton de session n'est plus
+  // valide (session en mémoire perdue après un redémarrage, par exemple).
+  socket.on('auth:required', () => {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    showAuthScreen('Votre session a expiré, merci de vous reconnecter.');
+  });
+
+  // ------------------------------------------------------------------
+  // Identité confirmée par le serveur (dérivée du compte)
+  // ------------------------------------------------------------------
+  socket.on('identity', ({ userId, username }) => {
+    state.myUserId = userId;
+    state.myUsername = username;
+    el.myUsername.textContent = username;
+    el.homeUsername.textContent = username;
+    logLine(`Identité confirmée : ${username} (${userId})`, 'system');
+  });
+
+  // ------------------------------------------------------------------
+  // Liste des utilisateurs connectés dans la salle (pseudos + ping)
+  // ------------------------------------------------------------------
+  socket.on('room:users', (users) => {
+    state.users = users;
+    renderUserList(users);
+  });
+
+  socket.on('user:joined', (u) => {
+    logLine(`${u.username} a rejoint la salle.`, 'system');
+    addChatSystemLine(`${u.username} a rejoint la salle.`);
+  });
+  socket.on('user:left', (u) => {
+    const name = getUsernameById(u.id);
+    logLine(`${name} a quitté la salle.`, 'system');
+    addChatSystemLine(`${name} a quitté la salle.`);
+  });
+  socket.on('user:reconnected', (u) => {
+    logLine(`${u.username} s'est reconnecté.`, 'system');
+    addChatSystemLine(`${u.username} s'est reconnecté.`);
+  });
+  socket.on('user:disconnected_temp', (u) => {
+    const name = getUsernameById(u.id);
+    logLine(`${name} déconnecté, en attente de reconnexion...`, 'error');
+  });
+
+  // ------------------------------------------------------------------
+  // Réception des messages diffusés à la salle
+  // ------------------------------------------------------------------
+  socket.on('message:broadcast', (envelope) => {
+    const mine = envelope.from === state.myUserId;
+    const author = getUsernameById(envelope.from);
+    const time = new Date(envelope.timestamp).toLocaleTimeString('fr-FR', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    if (envelope.type === 'chat' && envelope.data && typeof envelope.data.text === 'string') {
+      if (!mine) addChatBubble({ author, text: envelope.data.text, mine: false, time });
+    } else {
+      // Donnée personnalisée (mode avancé) : on l'affiche dans le journal
+      // technique plutôt que dans le chat, pour ne pas polluer la conversation.
+      if (!mine) {
+        logLine(`← [broadcast de ${author}] ${envelope.type} ${JSON.stringify(envelope.data)}`, 'in');
+      }
+    }
+  });
+
+  socket.on('message:direct', (envelope) => {
+    const author = getUsernameById(envelope.from);
+    logLine(`← [privé de ${author}] ${envelope.type} ${JSON.stringify(envelope.data)}`, 'in');
+  });
+}
+
+// La socket est créée une seule fois au chargement de la page (voir plus
+// haut) : on attache donc les écouteurs tout de suite, une seule fois.
+registerSocketHandlers();
 
 // ------------------------------------------------------------------
 // Écran d'accueil : créer / rejoindre une salle
 // ------------------------------------------------------------------
 el.btnCreateRoom.addEventListener('click', () => {
   el.homeError.textContent = '';
-  const username = el.usernameInput.value.trim();
-  socket.emit('room:create', { username }, (res) => {
+  socket.emit('room:create', {}, (res) => {
     if (!res?.ok) {
       el.homeError.textContent = res?.error || 'Erreur lors de la création.';
       return;
     }
-    state.myUsername = username || `Joueur-${res.userId.slice(4, 8)}`;
     enterRoom(res.roomCode, res.users);
     logLine(`Salle créée : ${res.roomCode}`, 'system');
   });
@@ -221,14 +409,12 @@ el.roomCodeInput.addEventListener('keydown', (e) => {
 function attemptJoin() {
   el.homeError.textContent = '';
   const roomCode = el.roomCodeInput.value.trim().toUpperCase();
-  const username = el.usernameInput.value.trim();
 
   if (!roomCode) {
     el.homeError.textContent = 'Merci de saisir un code de salle.';
     return;
   }
-  state.myUsername = username || state.myUsername;
-  socket.emit('room:join', { roomCode, username }, handleJoinResponse);
+  socket.emit('room:join', { roomCode }, handleJoinResponse);
 }
 
 function handleJoinResponse(res) {
@@ -261,14 +447,6 @@ el.btnLeaveRoom.addEventListener('click', () => {
     el.screenHome.classList.remove('screen--hidden');
     logLine('Vous avez quitté la salle.', 'system');
   });
-});
-
-// ------------------------------------------------------------------
-// Liste des utilisateurs connectés dans la salle (pseudos + ping)
-// ------------------------------------------------------------------
-socket.on('room:users', (users) => {
-  state.users = users;
-  renderUserList(users);
 });
 
 function renderUserList(users) {
@@ -306,52 +484,6 @@ function renderUserList(users) {
       }
     });
 }
-
-socket.on('user:joined', (u) => {
-  logLine(`${u.username} a rejoint la salle.`, 'system');
-  addChatSystemLine(`${u.username} a rejoint la salle.`);
-});
-socket.on('user:left', (u) => {
-  const name = getUsernameById(u.id);
-  logLine(`${name} a quitté la salle.`, 'system');
-  addChatSystemLine(`${name} a quitté la salle.`);
-});
-socket.on('user:reconnected', (u) => {
-  logLine(`${u.username} s'est reconnecté.`, 'system');
-  addChatSystemLine(`${u.username} s'est reconnecté.`);
-});
-socket.on('user:disconnected_temp', (u) => {
-  const name = getUsernameById(u.id);
-  logLine(`${name} déconnecté, en attente de reconnexion...`, 'error');
-});
-
-// ------------------------------------------------------------------
-// Réception des messages diffusés à la salle
-// ------------------------------------------------------------------
-socket.on('message:broadcast', (envelope) => {
-  const mine = envelope.from === state.myUserId;
-  const author = getUsernameById(envelope.from);
-  const time = new Date(envelope.timestamp).toLocaleTimeString('fr-FR', {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-  if (envelope.type === 'chat' && envelope.data && typeof envelope.data.text === 'string') {
-    if (!mine) addChatBubble({ author, text: envelope.data.text, mine: false, time });
-  } else {
-    // Donnée personnalisée (mode avancé) : on l'affiche dans le journal
-    // technique plutôt que dans le chat, pour ne pas polluer la conversation.
-    if (!mine) {
-      logLine(`← [broadcast de ${author}] ${envelope.type} ${JSON.stringify(envelope.data)}`, 'in');
-    }
-  }
-});
-
-socket.on('message:direct', (envelope) => {
-  const author = getUsernameById(envelope.from);
-  logLine(`← [privé de ${author}] ${envelope.type} ${JSON.stringify(envelope.data)}`, 'in');
-});
 
 // ------------------------------------------------------------------
 // Panneau avancé : envoi de données JSON personnalisées (broadcast/direct)

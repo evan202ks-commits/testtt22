@@ -200,7 +200,26 @@ input[type="text"]::placeholder {
   color: var(--muted-dim);
 }
 
-.actions { margin: 18px 0 0; }
+.actions { margin: 18px 0 0; display: flex; gap: 10px; flex-wrap: wrap; }
+.actions .btn { flex: 1; }
+
+input[type="password"] {
+  width: 100%;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s ease;
+  margin-bottom: 18px;
+}
+input[type="password"]:focus { border-color: var(--signal); }
+input[type="password"]::placeholder { color: var(--muted-dim); }
+
+.topbar__logout { margin-left: 6px; }
 
 .divider {
   display: flex;

@@ -19,11 +19,13 @@ const http = require('http');
 const express = require('express');
 const { Server } = require('socket.io');
 const { RoomManager } = require('./roomManager');
+const { AccountManager } = require('./accounts');
 
 const PORT = process.env.PORT || 3000;
 
 const app = express();
 const server = http.createServer(app);
+app.use(express.json());
 
 const io = new Server(server, {
   // Ping applicatif du transport (au-delà de notre propre mesure de ping
@@ -36,6 +38,7 @@ const io = new Server(server, {
 });
 
 const roomManager = new RoomManager();
+const accountManager = new AccountManager();
 
 // Association socket.id (volatile, change à chaque reconnexion) -> userId
 // (stable, persisté côté client en localStorage). C'est ce qui permet de
@@ -51,6 +54,41 @@ app.get('/health', (req, res) => {
     rooms: roomManager.rooms.size,
     uptime: process.uptime(),
   });
+});
+
+// --------------------------------------------------------------------
+// Comptes (inscription / connexion) — API REST simple, indépendante de
+// Socket.IO. Le client garde le jeton de session reçu ici et le fournit
+// ensuite lors de la connexion WebSocket (voir plus bas).
+// --------------------------------------------------------------------
+
+app.post('/api/register', (req, res) => {
+  const { username, password } = req.body || {};
+  const result = accountManager.register(username, password);
+  if (!result.ok) return res.status(400).json(result);
+  log(`Nouveau compte créé : ${result.account.username}`);
+  res.json(result);
+});
+
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body || {};
+  const result = accountManager.login(username, password);
+  if (!result.ok) return res.status(401).json(result);
+  log(`Connexion compte : ${result.account.username}`);
+  res.json(result);
+});
+
+app.post('/api/logout', (req, res) => {
+  const { token } = req.body || {};
+  accountManager.destroySession(token);
+  res.json({ ok: true });
+});
+
+app.get('/api/me', (req, res) => {
+  const token = req.headers['x-session-token'];
+  const account = accountManager.getAccountByToken(token);
+  if (!account) return res.status(401).json({ ok: false });
+  res.json({ ok: true, account });
 });
 
 // --------------------------------------------------------------------
@@ -71,26 +109,38 @@ function log(...args) {
 // --------------------------------------------------------------------
 
 io.on('connection', (socket) => {
-  // Le client peut fournir un userId déjà connu (reconnexion / rechargement
-  // de page) via l'auth du handshake. Sinon on lui en attribue un nouveau.
-  const providedUserId = socket.handshake.auth?.userId;
-  const userId = providedUserId || roomManager.generateUserId();
-  const isNewIdentity = !providedUserId;
+  // Le client doit désormais fournir un jeton de session valide (obtenu via
+  // /api/register ou /api/login) : c'est le compte qui fait foi pour le
+  // pseudo, plus une simple saisie libre du client.
+  const sessionToken = socket.handshake.auth?.sessionToken;
+  const account = accountManager.getAccountByToken(sessionToken);
+
+  if (!account) {
+    log(`Connexion refusée socket=${socket.id} (jeton de session absent ou invalide)`);
+    socket.emit('auth:required');
+    socket.disconnect(true);
+    return;
+  }
+
+  // Le userId reste lié au compte (stable, quel que soit l'onglet/socket),
+  // ce qui permet de retrouver "qui parle" quel que soit l'état de la
+  // connexion physique.
+  const userId = `usr_${account.id}`;
 
   socketIdToUserId.set(socket.id, userId);
   userIdToSocketId.set(userId, socket.id);
 
-  socket.emit('identity', { userId, isNewIdentity });
-  log(`Connexion socket=${socket.id} user=${userId} (nouvel id: ${isNewIdentity})`);
+  socket.emit('identity', { userId, username: account.username });
+  log(`Connexion socket=${socket.id} user=${userId} compte=${account.username}`);
 
   // ------------------------------------------------------------------
   // Créer une salle
   // ------------------------------------------------------------------
-  socket.on('room:create', ({ username } = {}, callback) => {
+  socket.on('room:create', (_payload = {}, callback) => {
     try {
       const user = {
         id: userId,
-        username: (username || `Joueur-${userId.slice(4, 8)}`).slice(0, 24),
+        username: account.username,
         connected: true,
         ping: null,
         joinedAt: Date.now(),
@@ -116,7 +166,7 @@ io.on('connection', (socket) => {
   // ------------------------------------------------------------------
   // Rejoindre une salle existante
   // ------------------------------------------------------------------
-  socket.on('room:join', ({ roomCode, username } = {}, callback) => {
+  socket.on('room:join', ({ roomCode } = {}, callback) => {
     const code = String(roomCode || '').trim().toUpperCase();
 
     if (!roomManager.roomExists(code)) {
@@ -130,7 +180,7 @@ io.on('connection', (socket) => {
 
     const user = existing || {
       id: userId,
-      username: (username || `Joueur-${userId.slice(4, 8)}`).slice(0, 24),
+      username: account.username,
       connected: true,
       ping: null,
       joinedAt: Date.now(),
