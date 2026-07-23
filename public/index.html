@@ -65,7 +65,7 @@
     <div class="game-overlay__hud">
       <span class="game-overlay__title">⚔️ Royaume en ligne</span>
       <span class="game-overlay__count"><span id="gamePlayerCount">0</span> aventurier(s) sur l'île</span>
-      <span class="game-overlay__hint">Déplacement : ZQSD / flèches · <kbd>Tab</kbd> pour ouvrir le chat</span>
+      <span class="game-overlay__hint">Déplacement : ZQSD / flèches · <kbd>Tab</kbd> pour le chat · <kbd>E</kbd> pour le sac</span>
     </div>
 
     <canvas id="gameCanvas" class="game-overlay__canvas"></canvas>
@@ -93,6 +93,21 @@
       </div>
 
 
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- OVERLAY : sac / inventaire, ouvert et fermé avec la touche    -->
+    <!-- "e". Le jeu continue de tourner en dessous (comme le chat).   -->
+    <!-- ============================================================ -->
+    <div id="inventoryOverlay" class="inventory-overlay">
+      <div class="inventory-panel rpg-panel-surface">
+        <div class="inventory-panel__header">
+          <h2 class="inventory-panel__title">🎒 Sac de <span id="inventoryOwnerName">Aventurier</span></h2>
+          <button id="btnCloseInventory" class="btn btn--ghost btn--small" type="button">Fermer</button>
+        </div>
+        <p class="inventory-panel__hint">Appuyez sur <kbd>E</kbd> ou <kbd>Échap</kbd> pour fermer</p>
+        <div id="inventoryGrid" class="inventory-grid"></div>
+      </div>
     </div>
   </div>
 
@@ -174,6 +189,7 @@
   <script src="sprites/IslandMap.js"></script>
   <script src="game/IsoRenderer.js"></script>
   <script src="game/Player.js"></script>
+  <script src="game/Inventory.js"></script>
   <script src="game/InputManager.js"></script>
   <script src="game/GameNetwork.js"></script>
   <script src="game/GameEngine.js"></script>

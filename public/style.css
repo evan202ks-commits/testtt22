@@ -816,3 +816,90 @@ kbd {
 .topbar {
   z-index: 80;
 }
+
+/* ---------------------------------------------------------------- */
+/* Overlay du sac / inventaire — flotte par-dessus le jeu, ouvert et */
+/* fermé avec la touche "e". Le jeu continue de tourner en dessous,  */
+/* exactement comme le chat. Contenu propre à chaque joueur (voir    */
+/* game/Inventory.js, sauvegarde localStorage par userId).           */
+/* ---------------------------------------------------------------- */
+
+.inventory-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 10, 18, 0.6);
+  backdrop-filter: blur(6px);
+}
+
+.inventory-overlay--active {
+  display: flex;
+}
+
+.inventory-panel {
+  width: min(360px, 90vw);
+  padding: 16px 18px 18px;
+  font-family: 'Trebuchet MS', var(--font-sans, sans-serif);
+}
+
+.inventory-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.inventory-panel__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #f4e2b0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+.inventory-panel__hint {
+  margin: 4px 0 14px;
+  font-size: 11.5px;
+  color: #b6a284;
+}
+
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+
+.inventory-slot {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  position: relative;
+}
+
+.inventory-slot--empty {
+  opacity: 0.55;
+}
+
+.inventory-slot__icon {
+  font-size: 18px;
+}
+
+.inventory-slot__qty {
+  position: absolute;
+  bottom: 1px;
+  right: 3px;
+  font-size: 9.5px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: #f4e2b0;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.9);
+}
+
+@media (max-width: 480px) {
+  .inventory-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}

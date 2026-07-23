@@ -27,6 +27,10 @@
     const canvas = document.getElementById('gameCanvas');
     const hudCount = document.getElementById('gamePlayerCount');
     const hudPlayerName = document.getElementById('hudPlayerName');
+    const inventoryOverlay = document.getElementById('inventoryOverlay');
+    const inventoryGrid = document.getElementById('inventoryGrid');
+    const inventoryOwnerName = document.getElementById('inventoryOwnerName');
+    const btnCloseInventory = document.getElementById('btnCloseInventory');
 
     if (!gameOverlay || !chatOverlay || !screenRoom || !canvas || typeof socket === 'undefined' || typeof state === 'undefined') {
       // La page ne contient pas (encore) l'UI attendue, ou client.js n'a
@@ -35,11 +39,11 @@
     }
 
     // ---------------------------------------------------------------
-    // HUD RPG (portrait/vie/nom déjà dans le HTML) : on construit ici
-    // juste les emplacements de la barre de raccourcis et du sac, et on
-    // reflète le pseudo courant. Purement visuel — aucun inventaire ni
-    // système de PA/PV réel n'existe côté serveur ; ceci est la coquille
-    // graphique demandée, sans ajouter de fonctionnalité de jeu.
+    // HUD RPG (portrait/vie/nom déjà dans le HTML) : on reflète juste le
+    // pseudo courant ici. La vie/PA restent purement visuelles (aucune
+    // logique de combat côté serveur). Le sac (touche "e"), lui, est
+    // fonctionnel : voir game/Inventory.js — état propre à chaque joueur,
+    // persistant en localStorage, jamais partagé entre deux joueurs.
     // ---------------------------------------------------------------
     function refreshHudIdentity() {
       if (hudPlayerName) hudPlayerName.textContent = state.myUsername || 'Aventurier';
@@ -58,11 +62,32 @@
       },
     });
 
+    const inventory = new window.Game.Inventory({
+      overlayEl: inventoryOverlay,
+      gridEl: inventoryGrid,
+      closeBtn: btnCloseInventory,
+    });
+
     let inRoom = false;
     let chatOpen = false;
 
     function isCurrentlyInRoom() {
       return !screenRoom.classList.contains('screen--hidden');
+    }
+
+    function isTypingTarget(target) {
+      const tag = target?.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable;
+    }
+
+    function toggleInventory() {
+      if (!inRoom) return;
+      if (inventoryOwnerName) inventoryOwnerName.textContent = state.myUsername || 'Aventurier';
+      inventory.toggleFor(state.myUserId);
+    }
+
+    function closeInventory() {
+      inventory.close();
     }
 
     function openChat() {
@@ -95,6 +120,7 @@
       inRoom = false;
       gameOverlay.classList.remove('game-overlay--active');
       closeChat();
+      closeInventory();
       engine.stop();
       engine.players.clear();
     }
@@ -114,9 +140,21 @@
     if (isCurrentlyInRoom()) enterRoomMode();
 
     document.addEventListener('keydown', (e) => {
-      if (e.key !== 'Tab' || !inRoom) return;
-      e.preventDefault();
-      toggleChat();
+      if (e.key === 'Tab' && inRoom) {
+        e.preventDefault();
+        toggleChat();
+        return;
+      }
+
+      if ((e.key === 'e' || e.key === 'E') && inRoom && !isTypingTarget(e.target)) {
+        e.preventDefault();
+        toggleInventory();
+        return;
+      }
+
+      if (e.key === 'Escape' && inventory.open) {
+        closeInventory();
+      }
     });
   }
 
