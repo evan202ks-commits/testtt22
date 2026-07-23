@@ -161,15 +161,9 @@ window.Game.Sprites.IslandMap = {
     const villageX = Math.cos(this._pathAngle) * this._pathLen;
     const villageY = Math.sin(this._pathAngle) * this._pathLen;
 
-    // Bâtiment principal + touches autour, positions fixes (composition
-    // volontaire plutôt qu'aléatoire, pour un vrai petit hameau lisible).
-    decor.push({ x: villageX - 55, y: villageY + 20, type: 'fence', seed: 2, scale: 1 });
-    decor.push({ x: villageX - 30, y: villageY + 42, type: 'fence', seed: 3, scale: 1 });
-    decor.push({ x: villageX + 50, y: villageY + 15, type: 'chest', seed: 4, scale: 1 });
-
     const typeWeights = [
       ['rock', 0.14], ['rockBig', 0.05],
-      ['bush', 0.24], ['chest', 0.01], ['fence', 0.02],
+      ['bush', 0.24],
     ];
 
     tiles.forEach((tile) => {
