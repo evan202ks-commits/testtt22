@@ -8,27 +8,12 @@
  * GameNetwork et IsoRenderer. Aucun de ces modules ne se connaît entre
  * eux directement : tout passe par GameEngine, ce qui garde chaque
  * brique indépendante et remplaçable.
- *
- * Points d'extension prévus (sans refonte) :
- *   - remplacer drawPlayerMarker par un sprite animé dans IsoRenderer
- *   - ajouter une carte/collisions en enrichissant `update()`
- *   - ajouter des objets/interactions comme nouvelles entités + types
- *     de messages réseau ("game:interact", "game:pickup"...)
  * ----------------------------------------------------------------------
  */
 
 window.Game = window.Game || {};
 
 window.Game.GameEngine = class GameEngine {
-  /**
-   * @param {Object} opts
-   * @param {HTMLCanvasElement} opts.canvas
-   * @param {SocketIOClient.Socket} opts.socket - socket déjà connecté (réutilisé, non modifié)
-   * @param {() => {myUserId: string, myUsername: string, users: Array}} opts.getSessionState
-   *   Fonction qui lit l'état courant exposé par client.js (state global),
-   *   sans jamais le modifier — juste le consulter.
-   * @param {(count: number) => void} [opts.onRosterChange] callback UI (HUD)
-   */
   constructor({ canvas, socket, getSessionState, onRosterChange }) {
     this.canvas = canvas;
     this.getSessionState = getSessionState;
@@ -43,6 +28,7 @@ window.Game.GameEngine = class GameEngine {
 
     this.speed = 220; // unités monde / seconde
     this.map = window.Game.Sprites?.IslandMap || null; // carte + collisions
+    this.gameTime = 0;
 
     this._running = false;
     this._rafId = null;
@@ -106,6 +92,7 @@ window.Game.GameEngine = class GameEngine {
     if (!this._running) return;
     const dt = Math.min(0.05, (now - this._lastFrameAt) / 1000); // clamp anti gros sauts
     this._lastFrameAt = now;
+    this.gameTime += dt;
 
     this._update(dt);
     this._render();
@@ -120,6 +107,8 @@ window.Game.GameEngine = class GameEngine {
     if (!me) return;
 
     const dir = this.input.getDirection();
+    const prevX = me.x;
+    const prevY = me.y;
     if (dir.x !== 0 || dir.y !== 0) {
       let nextX = me.x + dir.x * this.speed * dt;
       let nextY = me.y + dir.y * this.speed * dt;
@@ -134,13 +123,18 @@ window.Game.GameEngine = class GameEngine {
       me.targetY = me.y;
       this.network.sendPosition(me.x, me.y);
     }
+    me.updateAnimation(dt, me.x - prevX, me.y - prevY, this.renderer);
 
     for (const player of this.players.values()) {
       if (player.isLocal) continue;
+      const beforeX = player.x;
+      const beforeY = player.y;
       player.interpolate(dt);
+      player.updateAnimation(dt, player.x - beforeX, player.y - beforeY, this.renderer);
     }
 
     this.renderer.setCamera(me.x, me.y);
+    this.renderer.setTime(this.gameTime);
   }
 
   _render() {
@@ -151,17 +145,41 @@ window.Game.GameEngine = class GameEngine {
       this.renderer.drawGroundGrid();
     }
 
-    // Tri peintre : on dessine du fond vers le premier plan pour que les
-    // joueurs "plus bas" dans le monde se superposent correctement.
-    const sorted = Array.from(this.players.values()).sort((a, b) => (a.x + a.y) - (b.x + b.y));
-    for (const player of sorted) {
-      this.renderer.drawPlayerMarker({
-        x: player.x,
-        y: player.y,
-        color: player.color,
-        isMe: player.isLocal,
-        label: player.username,
-      });
+    // Tri peintre COMMUN décor + joueurs : tout ce qui est "plus bas"
+    // dans le monde (x+y plus grand) se dessine par-dessus, pour qu'un
+    // personnage puisse passer devant/derrière un arbre ou une maison.
+    const decorEntries = (this.map?.getDecor ? this.map.getDecor() : []).map((d) => ({
+      kind: 'decor',
+      sortKey: d.x + d.y,
+      data: d,
+    }));
+    const playerEntries = Array.from(this.players.values()).map((p) => ({
+      kind: 'player',
+      sortKey: p.x + p.y,
+      data: p,
+    }));
+
+    const scene = decorEntries.concat(playerEntries).sort((a, b) => a.sortKey - b.sortKey);
+
+    for (const entry of scene) {
+      if (entry.kind === 'decor') {
+        const d = entry.data;
+        this.renderer.drawDecor(d.x, d.y, d.type, d.seed, d.scale);
+      } else {
+        const p = entry.data;
+        this.renderer.drawPlayerMarker({
+          x: p.x,
+          y: p.y,
+          color: p.color,
+          userId: p.id,
+          isMe: p.isLocal,
+          label: p.username,
+          direction: p.direction,
+          moving: p.isMoving,
+          animTime: p.animTime,
+          hpRatio: 1,
+        });
+      }
     }
   }
 
@@ -170,8 +188,6 @@ window.Game.GameEngine = class GameEngine {
   // ------------------------------------------------------------------
 
   _spawnPosition(seedId) {
-    // Position de départ déterministe mais variée par joueur, pour que
-    // tout le monde n'apparaisse pas superposé au centre.
     const hash = window.Game.mathUtils.hashString(String(seedId));
     const angle = (hash % 360) * (Math.PI / 180);
     const dist = 60 + (hash % 120);
@@ -222,9 +238,6 @@ window.Game.GameEngine = class GameEngine {
       player.username = u.username; // pseudo à jour si changé
     });
 
-    // Retire les joueurs qui ne sont plus dans la salle (départ détecté
-    // via la resynchronisation complète, filet de sécurité en plus de
-    // user:left).
     for (const id of Array.from(this.players.keys())) {
       if (id !== session?.myUserId && !incomingIds.has(id)) {
         this.players.delete(id);

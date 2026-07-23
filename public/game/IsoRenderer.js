@@ -5,33 +5,29 @@
  * ----------------------------------------------------------------------
  * Responsable UNIQUEMENT du rendu : projection d'un monde cartésien
  * (x, y en unités "monde") vers un écran en vue 3/4 isométrique façon
- * Dofus, et primitives de dessin (formes simples pour l'instant).
+ * RPG tactique, et primitives de dessin (tuiles de terrain, décor,
+ * personnages).
  *
- * Ce module ne connaît ni le réseau, ni les entités "joueur", ni les
- * entrées clavier : il sait juste transformer des coordonnées et
- * dessiner. Ça permet de le remplacer ou de l'enrichir (sprites, carte,
- * tuiles, calques...) plus tard sans toucher au reste du jeu.
+ * `worldUnitsPerTile` sépare l'échelle des déplacements (unités "monde",
+ * utilisées pour la vitesse/collision, inchangées) de la taille à
+ * l'écran d'une case de la grille (tileWidth x tileHeight, en pixels).
  * ----------------------------------------------------------------------
  */
 
 window.Game = window.Game || {};
 
 window.Game.IsoRenderer = class IsoRenderer {
-  /**
-   * @param {HTMLCanvasElement} canvas
-   * @param {{tileWidth?: number, tileHeight?: number}} [options]
-   */
   constructor(canvas, options = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
 
-    // Ratio 2:1 typique des vues isométriques façon Dofus/Diablo.
     this.tileWidth = options.tileWidth ?? 64;
     this.tileHeight = options.tileHeight ?? 32;
+    this.worldUnitsPerTile = options.worldUnitsPerTile ?? 40;
 
-    // Position (en coordonnées monde) sur laquelle la caméra est centrée.
     this.cameraX = 0;
     this.cameraY = 0;
+    this.time = 0;
 
     this.resize();
   }
@@ -51,13 +47,13 @@ window.Game.IsoRenderer = class IsoRenderer {
     this.cameraY = y;
   }
 
-  /**
-   * Projette une coordonnée monde (cartésienne) en coordonnée écran
-   * isométrique, relative à la caméra et centrée dans le canvas.
-   */
+  setTime(t) {
+    this.time = t;
+  }
+
   worldToScreen(x, y) {
-    const relX = x - this.cameraX;
-    const relY = y - this.cameraY;
+    const relX = (x - this.cameraX) / this.worldUnitsPerTile;
+    const relY = (y - this.cameraY) / this.worldUnitsPerTile;
     const isoX = (relX - relY) * (this.tileWidth / 2);
     const isoY = (relX + relY) * (this.tileHeight / 2);
     return {
@@ -66,19 +62,45 @@ window.Game.IsoRenderer = class IsoRenderer {
     };
   }
 
+  worldToScreenVector(dx, dy) {
+    return {
+      x: (dx - dy) * (this.tileWidth / 2),
+      y: (dx + dy) * (this.tileHeight / 2),
+    };
+  }
+
   clear() {
     this.ctx.clearRect(0, 0, this.width, this.height);
   }
 
-  /**
-   * Grille de sol purement décorative, pour donner un repère spatial en
-   * attendant une vraie carte. Facile à retirer/remplacer plus tard.
-   */
-  drawGroundGrid({ extent = 12, spacing = 64 } = {}) {
+  drawOcean(color = '#0a3550') {
+    this.ctx.save();
+    this.ctx.fillStyle = color;
+    this.ctx.fillRect(0, 0, this.width, this.height);
+    this.ctx.restore();
+  }
+
+  drawTile(x, y, type, variant = 0) {
+    const atlas = window.Game.Sprites?.TerrainAtlas;
+    if (!atlas) return;
+    const screen = this.worldToScreen(x, y);
+    atlas.drawTile(this.ctx, screen, type, variant, this.tileWidth, this.tileHeight, this.time);
+  }
+
+  drawDecor(x, y, type, seed = 0, scale = 1) {
+    const decor = window.Game.Sprites?.DecorSprites;
+    if (!decor) return;
+    const screen = this.worldToScreen(x, y);
+    decor.draw(this.ctx, screen, type, seed, scale);
+    return screen;
+  }
+
+  drawGroundGrid({ extent = 12 } = {}) {
     const ctx = this.ctx;
     ctx.save();
     ctx.strokeStyle = 'rgba(148, 178, 214, 0.10)';
     ctx.lineWidth = 1;
+    const spacing = this.worldUnitsPerTile;
 
     for (let i = -extent; i <= extent; i++) {
       const a = this.worldToScreen(i * spacing, -extent * spacing);
@@ -98,17 +120,10 @@ window.Game.IsoRenderer = class IsoRenderer {
     ctx.restore();
   }
 
-  /**
-   * Projette la position monde d'un joueur en écran, puis délègue le
-   * dessin lui-même au sprite actif (aujourd'hui un simple rond, défini
-   * dans public/sprites/CircleSprite.js). Le renderer n'a donc plus à
-   * connaître "à quoi ressemble" un personnage : demain, remplacer
-   * `spriteModule` par un sprite animé/à image ne touchera pas ce fichier.
-   */
-  drawPlayerMarker({ x, y, radius = 16, color = '#33d6b6', isMe = false, label = '' }, spriteModule) {
-    const sprite = spriteModule || window.Game.Sprites?.CircleSprite;
-    const screen = this.worldToScreen(x, y);
-    sprite?.draw(this.ctx, screen, { radius, color, isMe, label });
+  drawPlayerMarker(opts, spriteModule) {
+    const sprite = spriteModule || window.Game.Sprites?.CharacterSprite;
+    const screen = this.worldToScreen(opts.x, opts.y);
+    sprite?.draw(this.ctx, screen, opts);
     return screen;
   }
 };

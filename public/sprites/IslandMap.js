@@ -3,20 +3,18 @@
 /**
  * sprites/IslandMap.js
  * ----------------------------------------------------------------------
- * La "carte" du mini-jeu : une île, dessinée comme une forme simple
- * (polygone rempli, pas de tuiles/textures) flottant sur un fond d'océan.
+ * La carte du mini-jeu : une île générée sur une grille de tuiles
+ * isométriques (herbe, herbe profonde, sable, pierre, terre, bois/ponton)
+ * entourée d'eau, avec du décor (arbres, rochers, buissons, une maison,
+ * une barrière, un panneau, un coffre) placé dessus. Tout est généré une
+ * seule fois de façon déterministe (même seed pour tout le monde, pas de
+ * réseau nécessaire) puis mis en cache.
  *
- * Comme pour CircleSprite, ce module ne connaît ni le réseau ni les
- * entités joueur : il expose juste
- *   - une forme (calculée depuis une fonction radiusAt(angle), pour que
- *     le contour reste organique sans dépendre d'assets externes),
- *   - une méthode de collision (clampToIsland) pour empêcher un joueur
- *     de sortir en mer,
- *   - une méthode de dessin (draw) qui utilise l'IsoRenderer fourni.
- *
- * C'est le point d'extension prévu pour la "vraie" carte plus tard
- * (tuiles, obstacles, plusieurs zones...) : il suffira d'enrichir ou de
- * remplacer ce fichier, sans toucher au moteur de jeu.
+ * Expose toujours la même API de collision qu'avant (containsPoint,
+ * clampToIsland) : la logique de déplacement de GameEngine n'a pas à
+ * changer. Expose en plus getDecor() pour que GameEngine puisse trier
+ * les objets de décor avec les joueurs (tri peintre commun -> bonne
+ * occlusion visuelle, ex: passer derrière un arbre).
  * ----------------------------------------------------------------------
  */
 
@@ -24,28 +22,16 @@ window.Game = window.Game || {};
 window.Game.Sprites = window.Game.Sprites || {};
 
 window.Game.Sprites.IslandMap = {
-  // Rayon moyen de l'île, en unités monde (mêmes unités que les
-  // positions des joueurs). Volontairement modeste : une île plus
-  // petite qu'un monde ouvert, avec de l'eau bien visible tout autour.
   baseRadius: 260,
-
-  // Marge de sécurité : un joueur ne peut pas s'approcher du bord à
-  // moins de cette distance (évite qu'il ait "les pieds dans l'eau").
   margin: 20,
+  tileSize: 40, // doit correspondre à IsoRenderer.worldUnitsPerTile
+  seed: 1337,
 
-  // Taille d'une "case" (en unités monde) sur laquelle un joueur se
-  // déplace. Sert à la fois de repère visuel (grille dessinée sur l'île)
-  // et de futur point d'ancrage pour des mécaniques basées sur des
-  // tuiles (obstacles, objets...).
-  tileSize: 40,
+  _built: false,
+  _tiles: [],       // {i, j, x, y, type, variant}
+  _decor: [],        // {x, y, type, seed, scale}
+  _shoreTiles: [],   // tuiles terrestres au contact de l'eau (pour le liseré)
 
-  /**
-   * Rayon de l'île à un angle donné (radians). Somme de quelques
-   * sinusoïdes à fréquences différentes : ça donne un contour organique
-   * (baies, avancées) tout en restant 100% déterministe, sans assets ni
-   * génération aléatoire à charger. Amplitudes proportionnelles à
-   * baseRadius pour garder la même silhouette quelle que soit la taille.
-   */
   radiusAt(angle) {
     return (
       this.baseRadius +
@@ -61,12 +47,6 @@ window.Game.Sprites.IslandMap = {
     return dist <= this.radiusAt(angle) - this.margin;
   },
 
-  /**
-   * Ramène (x, y) à l'intérieur de l'île si le point est en dehors —
-   * la "collision" avec la côte : c'est la LIMITE dure de la carte, un
-   * joueur ne peut jamais aller au-delà (donc jamais dans l'eau).
-   * Conserve la direction du déplacement, coupe juste sa portée.
-   */
   clampToIsland(x, y) {
     const dist = Math.hypot(x, y);
     if (dist === 0) return { x, y };
@@ -77,7 +57,163 @@ window.Game.Sprites.IslandMap = {
     return { x: x * scale, y: y * scale };
   },
 
-  _shapePoints(segments = 72) {
+  // ------------------------------------------------------------------
+  // Génération (une seule fois, mise en cache dans l'instance)
+  // ------------------------------------------------------------------
+
+  _isLand(dist, edge) {
+    return dist <= edge;
+  },
+
+  _pathDistance(x, y) {
+    // Distance point (x,y) au segment [centre -> point de village],
+    // pour tracer un chemin de terre battue rectiligne jusqu'à la maison.
+    const ax = 0, ay = 0;
+    const bx = Math.cos(this._pathAngle) * this._pathLen;
+    const by = Math.sin(this._pathAngle) * this._pathLen;
+    const abx = bx - ax, aby = by - ay;
+    const apx = x - ax, apy = y - ay;
+    const abLen2 = abx * abx + aby * aby;
+    let t = abLen2 > 0 ? (apx * abx + apy * aby) / abLen2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const cx = ax + abx * t, cy = ay + aby * t;
+    return Math.hypot(x - cx, y - cy);
+  },
+
+  _build() {
+    if (this._built) return;
+    this._built = true;
+
+    const rng = window.Game.mathUtils.rand2D;
+    const ts = this.tileSize;
+    const extent = Math.ceil((this.baseRadius + ts) / ts);
+
+    this._pathAngle = 0.65; // direction du chemin/village depuis le centre
+    this._pathLen = this.baseRadius * 0.62;
+
+    // Quelques centres de "carrières" de pierre, fixes et déterministes.
+    const stonePatches = [
+      { x: -120, y: 90, r: 55 },
+      { x: 140, y: -60, r: 45 },
+    ];
+
+    const tiles = [];
+    const shoreTiles = [];
+
+    for (let i = -extent; i <= extent; i++) {
+      for (let j = -extent; j <= extent; j++) {
+        const x = i * ts;
+        const y = j * ts;
+        const dist = Math.hypot(x, y);
+        const angle = Math.atan2(y, x);
+        const edge = this.radiusAt(angle);
+
+        if (!this._isLand(dist, edge)) continue; // eau : rien à dessiner (fond océan)
+
+        const coastDist = edge - dist;
+        let type = 'grass';
+        const n = rng(i, j, this.seed);
+
+        if (coastDist < ts * 1.5) {
+          type = 'sand';
+        } else if (this._pathDistance(x, y) < ts * 0.75) {
+          type = 'dirt';
+        } else if (stonePatches.some((p) => Math.hypot(x - p.x, y - p.y) < p.r)) {
+          type = 'stone';
+        } else {
+          type = n > 0.62 ? 'grassDeep' : 'grass';
+        }
+
+        tiles.push({ i, j, x, y, type, variant: Math.floor(n * 997) });
+
+        if (type !== 'sand' && coastDist < ts * 2.4) {
+          shoreTiles.push({ x, y });
+        }
+      }
+    }
+
+    // Petit ponton en bois : une rangée de tuiles depuis la côte,
+    // perpendiculaire au rivage, à un angle fixe (façon quai de pêcheur).
+    const dockAngle = 2.4;
+    for (let k = 0; k < 4; k++) {
+      const edge = this.radiusAt(dockAngle);
+      const dist = edge - ts * 0.4 - k * ts;
+      const x = Math.cos(dockAngle) * dist;
+      const y = Math.sin(dockAngle) * dist;
+      const gi = Math.round(x / ts);
+      const gj = Math.round(y / ts);
+      const existing = tiles.find((t) => t.i === gi && t.j === gj);
+      if (existing) {
+        existing.type = 'wood';
+        existing.variant = 500 + k;
+      } else {
+        tiles.push({ i: gi, j: gj, x: gi * ts, y: gj * ts, type: 'wood', variant: 500 + k });
+      }
+    }
+
+    this._tiles = tiles;
+    this._shoreTiles = shoreTiles;
+    this._buildDecor(tiles, rng);
+  },
+
+  _buildDecor(tiles, rng) {
+    const decor = [];
+    const villageX = Math.cos(this._pathAngle) * this._pathLen;
+    const villageY = Math.sin(this._pathAngle) * this._pathLen;
+
+    // Bâtiment principal + touches autour, positions fixes (composition
+    // volontaire plutôt qu'aléatoire, pour un vrai petit hameau lisible).
+    decor.push({ x: villageX, y: villageY, type: 'house', seed: 1, scale: 1 });
+    decor.push({ x: villageX - 55, y: villageY + 20, type: 'fence', seed: 2, scale: 1 });
+    decor.push({ x: villageX - 30, y: villageY + 42, type: 'fence', seed: 3, scale: 1 });
+    decor.push({ x: villageX + 50, y: villageY + 15, type: 'chest', seed: 4, scale: 1 });
+    decor.push({ x: 40, y: -20, type: 'sign', seed: 5, scale: 1 });
+
+    const typeWeights = [
+      ['tree', 0.42], ['treeBig', 0.10], ['rock', 0.14], ['rockBig', 0.05],
+      ['bush', 0.24], ['sign', 0.02], ['chest', 0.01], ['fence', 0.02],
+    ];
+
+    tiles.forEach((tile) => {
+      if (tile.type !== 'grass' && tile.type !== 'grassDeep') return;
+      if (Math.hypot(tile.x, tile.y) < 70) return; // clairière de spawn dégagée
+      if (Math.hypot(tile.x - villageX, tile.y - villageY) < 75) return; // pas devant la maison
+
+      const roll = rng(tile.i, tile.j, this.seed + 91);
+      if (roll > 0.14) return; // ~14% des tuiles éligibles reçoivent un décor
+
+      const pick = rng(tile.i, tile.j, this.seed + 173);
+      let acc = 0;
+      let chosen = 'tree';
+      for (const [type, weight] of typeWeights) {
+        acc += weight;
+        if (pick <= acc) { chosen = type; break; }
+      }
+      const jitterX = (rng(tile.i, tile.j, this.seed + 5) - 0.5) * this.tileSize * 0.5;
+      const jitterY = (rng(tile.i, tile.j, this.seed + 6) - 0.5) * this.tileSize * 0.5;
+      decor.push({
+        x: tile.x + jitterX,
+        y: tile.y + jitterY,
+        type: chosen,
+        seed: Math.floor(rng(tile.i, tile.j, this.seed + 7) * 9999),
+        scale: 0.9 + rng(tile.i, tile.j, this.seed + 8) * 0.3,
+      });
+    });
+
+    this._decor = decor;
+  },
+
+  /** Liste des décors du monde (pour tri peintre commun avec les joueurs). */
+  getDecor() {
+    this._build();
+    return this._decor;
+  },
+
+  // ------------------------------------------------------------------
+  // Rendu
+  // ------------------------------------------------------------------
+
+  _shapePoints(segments = 96) {
     const pts = [];
     for (let i = 0; i <= segments; i++) {
       const angle = (i / segments) * Math.PI * 2;
@@ -87,84 +223,37 @@ window.Game.Sprites.IslandMap = {
     return pts;
   },
 
-  _traceIslandPath(ctx, screenPoints) {
+  /**
+   * Dessine uniquement le SOL (océan + tuiles). Le décor est dessiné à
+   * part par GameEngine, mélangé aux joueurs dans le tri peintre, pour
+   * une occlusion correcte (ex: personnage passant derrière un arbre).
+   */
+  draw(renderer) {
+    this._build();
+    const ctx = renderer.ctx;
+
+    renderer.drawOcean('#0e3a58');
+
+    // Tri peintre sur les tuiles aussi (cases "hautes" du losange isométrique
+    // se chevauchent légèrement entre elles).
+    const sorted = this._tiles.slice().sort((a, b) => (a.i + a.j) - (b.i + b.j));
+    sorted.forEach((t) => renderer.drawTile(t.x, t.y, t.type, t.variant));
+
+    // Liseré d'écume au contact terre/eau.
+    const atlas = window.Game.Sprites.TerrainAtlas;
+    this._shoreTiles.forEach((t) => {
+      const screen = renderer.worldToScreen(t.x, t.y);
+      atlas.drawShoreEdge(ctx, screen, renderer.tileWidth, renderer.tileHeight);
+    });
+
+    // Contour net de la côte, par-dessus tout, pour une silhouette lisible.
+    const screenPoints = this._shapePoints().map((p) => renderer.worldToScreen(p.x, p.y));
+    ctx.save();
     ctx.beginPath();
     screenPoints.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
     ctx.closePath();
-  },
-
-  /**
-   * Dessine la grille des cases sur lesquelles un joueur se déplace,
-   * restreinte à l'intérieur de l'île (via un clip sur sa silhouette).
-   * C'est un simple quadrillage en unités monde, projeté en iso comme
-   * le reste : chaque case fait `tileSize` unités de côté.
-   */
-  _drawTileGrid(renderer, screenPoints) {
-    const ctx = renderer.ctx;
-    const extent = Math.ceil((this.baseRadius * 1.2) / this.tileSize);
-
-    ctx.save();
-    this._traceIslandPath(ctx, screenPoints);
-    ctx.clip();
-
-    ctx.strokeStyle = 'rgba(63, 46, 20, 0.28)';
-    ctx.lineWidth = 1;
-    for (let i = -extent; i <= extent; i++) {
-      const a = renderer.worldToScreen(i * this.tileSize, -extent * this.tileSize);
-      const b = renderer.worldToScreen(i * this.tileSize, extent * this.tileSize);
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-
-      const c = renderer.worldToScreen(-extent * this.tileSize, i * this.tileSize);
-      const d = renderer.worldToScreen(extent * this.tileSize, i * this.tileSize);
-      ctx.beginPath();
-      ctx.moveTo(c.x, c.y);
-      ctx.lineTo(d.x, d.y);
-      ctx.stroke();
-    }
-    ctx.restore();
-  },
-
-  /**
-   * Dessine l'océan (fond plein écran, bien visible autour de l'île),
-   * puis l'île avec un dégradé sable -> herbe, sa côte, et enfin la
-   * grille des cases par-dessus pour que les déplacements soient lisibles.
-   * @param {InstanceType<typeof window.Game.IsoRenderer>} renderer
-   */
-  draw(renderer) {
-    const ctx = renderer.ctx;
-
-    // Océan : remplit tout le canvas visible, tout autour de l'île.
-    ctx.save();
-    ctx.fillStyle = '#0a3550';
-    ctx.fillRect(0, 0, renderer.width, renderer.height);
-    ctx.restore();
-
-    const screenPoints = this._shapePoints().map((p) => renderer.worldToScreen(p.x, p.y));
-    const center = renderer.worldToScreen(0, 0);
-    const edge = renderer.worldToScreen(this.baseRadius, 0);
-    const screenRadius = Math.hypot(edge.x - center.x, edge.y - center.y) * 1.35;
-
-    ctx.save();
-    this._traceIslandPath(ctx, screenPoints);
-
-    const gradient = ctx.createRadialGradient(center.x, center.y, screenRadius * 0.08, center.x, center.y, screenRadius);
-    gradient.addColorStop(0, '#e4d193');
-    gradient.addColorStop(0.55, '#cdb46c');
-    gradient.addColorStop(1, '#6f9c54');
-    ctx.fillStyle = gradient;
-    ctx.fill();
-    ctx.restore();
-
-    this._drawTileGrid(renderer, screenPoints);
-
-    // Liseré de côte, redessiné par-dessus la grille pour un bord net.
-    ctx.save();
-    this._traceIslandPath(ctx, screenPoints);
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'rgba(255, 246, 214, 0.55)';
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255, 246, 214, 0.35)';
     ctx.stroke();
     ctx.restore();
   },

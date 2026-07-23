@@ -26,12 +26,58 @@
     const screenRoom = document.getElementById('screen-room');
     const canvas = document.getElementById('gameCanvas');
     const hudCount = document.getElementById('gamePlayerCount');
+    const hudPlayerName = document.getElementById('hudPlayerName');
+    const hudHotbar = document.getElementById('hudHotbar');
+    const hudInventory = document.getElementById('hudInventory');
 
     if (!gameOverlay || !chatOverlay || !screenRoom || !canvas || typeof socket === 'undefined' || typeof state === 'undefined') {
       // La page ne contient pas (encore) l'UI attendue, ou client.js n'a
       // pas pu s'initialiser : on abandonne proprement.
       return;
     }
+
+    // ---------------------------------------------------------------
+    // HUD RPG (portrait/vie/nom déjà dans le HTML) : on construit ici
+    // juste les emplacements de la barre de raccourcis et du sac, et on
+    // reflète le pseudo courant. Purement visuel — aucun inventaire ni
+    // système de PA/PV réel n'existe côté serveur ; ceci est la coquille
+    // graphique demandée, sans ajouter de fonctionnalité de jeu.
+    // ---------------------------------------------------------------
+    const HOTBAR_ICONS = ['⚔️', '🛡️', '🧪', '📜', '🏹', '✨', '🍞', '🔑', '💰'];
+    const INVENTORY_ICONS = ['🧵', '🪵', '💎', '🍎', '🗝️', '🧴', '📦', '⚗️'];
+
+    function buildSlots(container, icons, keyLabels) {
+      if (!container || container.childElementCount > 0) return;
+      icons.forEach((icon, i) => {
+        const slot = document.createElement('div');
+        slot.className = 'rpg-slot';
+        slot.innerHTML = `<span class="rpg-slot__icon">${icon}</span>`;
+        if (keyLabels) {
+          const key = document.createElement('span');
+          key.className = 'rpg-slot__key';
+          key.textContent = keyLabels[i];
+          slot.appendChild(key);
+        }
+        container.appendChild(slot);
+      });
+    }
+
+    buildSlots(hudHotbar, HOTBAR_ICONS, ['1', '2', '3', '4', '5', '6', '7', '8', '9']);
+    buildSlots(hudInventory, INVENTORY_ICONS, null);
+
+    function refreshHudIdentity() {
+      if (hudPlayerName) hudPlayerName.textContent = state.myUsername || 'Aventurier';
+    }
+
+    // Simple retour visuel : appuyer sur 1-9 met en surbrillance le
+    // raccourci correspondant (aucune action de jeu déclenchée).
+    document.addEventListener('keydown', (e) => {
+      if (!hudHotbar || e.key < '1' || e.key > '9') return;
+      const idx = Number(e.key) - 1;
+      const slots = hudHotbar.querySelectorAll('.rpg-slot');
+      slots.forEach((s, i) => s.classList.toggle('rpg-slot--active', i === idx));
+      window.setTimeout(() => slots[idx]?.classList.remove('rpg-slot--active'), 220);
+    });
 
     const engine = new window.Game.GameEngine({
       canvas,
@@ -73,6 +119,7 @@
       if (inRoom) return;
       inRoom = true;
       gameOverlay.classList.add('game-overlay--active');
+      refreshHudIdentity();
       engine.start();
       closeChat(); // le jeu s'affiche en premier, le chat reste fermé par défaut
     }

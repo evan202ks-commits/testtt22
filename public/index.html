@@ -63,11 +63,42 @@
   <!-- ============================================================ -->
   <div id="gameOverlay" class="game-overlay">
     <div class="game-overlay__hud">
-      <span class="game-overlay__title">🎮 Mini-jeu</span>
-      <span class="game-overlay__count"><span id="gamePlayerCount">0</span> joueur(s) en ligne</span>
+      <span class="game-overlay__title">⚔️ Royaume en ligne</span>
+      <span class="game-overlay__count"><span id="gamePlayerCount">0</span> aventurier(s) sur l'île</span>
       <span class="game-overlay__hint">Déplacement : ZQSD / flèches · <kbd>Tab</kbd> pour ouvrir le chat</span>
     </div>
+
     <canvas id="gameCanvas" class="game-overlay__canvas"></canvas>
+
+    <!-- ============================================================ -->
+    <!-- HUD RPG : portrait + vie du joueur, mini-inventaire, barre de -->
+    <!-- raccourcis. Purement visuel — aucune logique de jeu (vie,     -->
+    <!-- objets) n'existe côté serveur : ces éléments illustrent l'UI  -->
+    <!-- sans changer les fonctionnalités réseau existantes.           -->
+    <!-- ============================================================ -->
+    <div class="rpg-hud">
+      <div class="rpg-hud__portrait-card">
+        <div class="rpg-hud__portrait">🧙</div>
+        <div class="rpg-hud__identity">
+          <span class="rpg-hud__name" id="hudPlayerName">Aventurier</span>
+          <div class="rpg-hud__bar rpg-hud__bar--hp">
+            <div class="rpg-hud__bar-fill" id="hudHpFill" style="width:100%"></div>
+            <span class="rpg-hud__bar-label">PV 100/100</span>
+          </div>
+          <div class="rpg-hud__bar rpg-hud__bar--ap">
+            <div class="rpg-hud__bar-fill" id="hudApFill" style="width:100%"></div>
+            <span class="rpg-hud__bar-label">PA 6/6</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="rpg-hud__hotbar" id="hudHotbar" aria-label="Barre de raccourcis"></div>
+
+      <div class="rpg-hud__inventory" aria-label="Mini-inventaire">
+        <span class="rpg-hud__inventory-title">Sac</span>
+        <div class="rpg-hud__inventory-grid" id="hudInventory"></div>
+      </div>
+    </div>
   </div>
 
   <!-- ============================================================ -->
@@ -142,7 +173,9 @@
   <!-- Ils se branchent sur `socket` et `state` (définis ci-dessus par-->
   <!-- client.js) sans jamais les modifier.                          -->
   <script src="game/mathUtils.js"></script>
-  <script src="sprites/CircleSprite.js"></script>
+  <script src="sprites/TerrainAtlas.js"></script>
+  <script src="sprites/DecorSprites.js"></script>
+  <script src="sprites/CharacterSprite.js"></script>
   <script src="sprites/IslandMap.js"></script>
   <script src="game/IsoRenderer.js"></script>
   <script src="game/Player.js"></script>

@@ -4,9 +4,10 @@
  * game/Player.js
  * ----------------------------------------------------------------------
  * Représente un joueur dans le mini-jeu : identité + position dans le
- * monde. Ne sait rien du réseau ni du rendu : c'est une entité de données
- * pure, ce qui la rend facile à faire évoluer plus tard (inventaire,
- * points de vie, direction du regard, animation en cours, etc.).
+ * monde + état d'animation (direction affichée, en mouvement ou non,
+ * horloge d'animation locale). Ne sait rien du réseau ni du rendu : une
+ * entité de données pure, mise à jour par GameEngine et lue par
+ * IsoRenderer/CharacterSprite.
  * ----------------------------------------------------------------------
  */
 
@@ -28,6 +29,13 @@ window.Game.Player = class Player {
     // en permanence puisqu'il est piloté directement par les entrées.
     this.targetX = x;
     this.targetY = y;
+
+    // État d'animation : direction visuelle (8 sens, voir CharacterSprite),
+    // marche en cours ou non, et horloge locale (avance seulement pendant
+    // le mouvement pour un cycle de marche cohérent).
+    this.direction = 'down';
+    this.isMoving = false;
+    this.animTime = 0;
   }
 
   setTarget(x, y) {
@@ -42,5 +50,26 @@ window.Game.Player = class Player {
     if (this.isLocal) return;
     this.x = window.Game.mathUtils.smoothTo(this.x, this.targetX, rate, dt);
     this.y = window.Game.mathUtils.smoothTo(this.y, this.targetY, rate, dt);
+  }
+
+  /**
+   * Met à jour l'état d'animation à partir d'un vecteur de déplacement
+   * MONDE (dx, dy) mesuré sur ce pas de temps. Convertit en vecteur
+   * écran iso pour que la direction affichée corresponde à ce qui est
+   * réellement vu (gauche/droite à l'écran), pas aux axes bruts du monde.
+   */
+  updateAnimation(dt, worldDX, worldDY, renderer) {
+    const moveDistSq = worldDX * worldDX + worldDY * worldDY;
+    const threshold = 0.02;
+    this.isMoving = moveDistSq > threshold * threshold;
+
+    if (this.isMoving) {
+      const iso = renderer.worldToScreenVector(worldDX, worldDY);
+      const dir = window.Game.Sprites.CharacterSprite.directionFromIsoVector(iso.x, iso.y);
+      if (dir) this.direction = dir;
+      this.animTime += dt;
+    } else {
+      this.animTime += dt * 0.5; // continue doucement pour l'animation idle
+    }
   }
 };
