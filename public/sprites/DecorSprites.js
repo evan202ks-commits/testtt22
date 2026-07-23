@@ -33,55 +33,22 @@ window.Game.Sprites.DecorSprites = (function () {
     ctx.stroke();
   }
 
-  // -- Arbre : feuillage en 3 masses arrondies + tronc, façon "peint". --
+  // -- Arbre : forme simple sans texture. --
   function drawTree(ctx, rng, big) {
     const scale = big ? 1.35 : 1;
-    const baseY = 0;
-    shadow(ctx, 22 * scale, 8 * scale, 0, baseY - 1);
+    shadow(ctx, 22 * scale, 8 * scale, 0, -1);
 
-    // Tronc
+    // Tronc simple
     ctx.save();
-    const trunkGrad = ctx.createLinearGradient(-4 * scale, 0, 4 * scale, 0);
-    trunkGrad.addColorStop(0, '#7a4a26');
-    trunkGrad.addColorStop(0.5, '#5c3419');
-    trunkGrad.addColorStop(1, '#42250f');
-    ctx.fillStyle = trunkGrad;
-    ctx.beginPath();
-    ctx.moveTo(-5 * scale, baseY);
-    ctx.quadraticCurveTo(-6 * scale, -20 * scale, -3 * scale, -34 * scale);
-    ctx.lineTo(3 * scale, -34 * scale);
-    ctx.quadraticCurveTo(6 * scale, -20 * scale, 5 * scale, baseY);
-    ctx.closePath();
-    ctx.fill();
-    outlinePath(ctx);
+    ctx.fillStyle = '#6b4422';
+    ctx.fillRect(-3 * scale, -32 * scale, 6 * scale, 32 * scale);
     ctx.restore();
 
-    // Feuillage : 3 masses superposées, teintes variées façon aquarelle.
-    const hues = [96, 104, 88];
-    const positions = [
-      { x: -12 * scale, y: -48 * scale, r: 17 * scale },
-      { x: 12 * scale, y: -46 * scale, r: 16 * scale },
-      { x: 0, y: -62 * scale, r: 20 * scale },
-    ];
-    positions.forEach((p, i) => {
-      const hue = hues[i] + Math.floor(rng() * 6);
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      const g = ctx.createRadialGradient(p.x - p.r * 0.3, p.y - p.r * 0.4, p.r * 0.1, p.x, p.y, p.r);
-      g.addColorStop(0, `hsl(${hue}, 55%, 58%)`);
-      g.addColorStop(1, `hsl(${hue}, 50%, 32%)`);
-      ctx.fillStyle = g;
-      ctx.fill();
-      outlinePath(ctx, 'rgba(25, 40, 15, 0.5)');
-      ctx.restore();
-    });
-
-    // Petites touches de lumière.
+    // Feuillage : un seul cercle plat
     ctx.save();
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
     ctx.beginPath();
-    ctx.ellipse(-4 * scale, -66 * scale, 6 * scale, 3.5 * scale, -0.4, 0, Math.PI * 2);
+    ctx.arc(0, -46 * scale, 22 * scale, 0, Math.PI * 2);
+    ctx.fillStyle = '#3a7a28';
     ctx.fill();
     ctx.restore();
   }
