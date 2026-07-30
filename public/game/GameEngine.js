@@ -30,6 +30,11 @@ window.Game.GameEngine = class GameEngine {
     this.map = window.Game.Sprites?.IslandMap || null; // carte + collisions
     this.gameTime = 0;
 
+    // Paramètre : bulles de chat au-dessus des personnages. Activé par
+    // défaut ; peut être coupé via setChatBubblesEnabled (voir main.js,
+    // qui relie ça à une case à cocher persistée en localStorage).
+    this.chatBubblesEnabled = true;
+
     this._running = false;
     this._rafId = null;
     this._lastFrameAt = 0;
@@ -56,6 +61,7 @@ window.Game.GameEngine = class GameEngine {
       onRosterSync: (users) => this._handleRosterSync(users),
       onPlayerJoined: (user) => this._handlePlayerJoined(user),
       onPlayerLeft: (userId) => this._handlePlayerLeft(userId),
+      onChatMessage: (userId, text) => this._handleChatMessage(userId, text),
     });
 
     this.input.enable();
@@ -93,6 +99,11 @@ window.Game.GameEngine = class GameEngine {
 
   _handleResize() {
     this.renderer.resize();
+  }
+
+  /** Active/désactive l'affichage des bulles de chat au-dessus des joueurs. */
+  setChatBubblesEnabled(enabled) {
+    this.chatBubblesEnabled = !!enabled;
   }
 
   // ------------------------------------------------------------------
@@ -189,6 +200,7 @@ window.Game.GameEngine = class GameEngine {
           moving: p.isMoving,
           animTime: p.animTime,
           hpRatio: 1,
+          chatText: this.chatBubblesEnabled ? p.getVisibleChatText() : '',
         });
       }
     }
@@ -264,5 +276,15 @@ window.Game.GameEngine = class GameEngine {
   _handlePlayerLeft(userId) {
     this.players.delete(userId);
     this.onRosterChange(this.players.size);
+  }
+
+  /**
+   * Un message de chat vient d'être reçu (venant de soi ou d'un autre
+   * joueur — le serveur renvoie aussi à l'émetteur, voir GameNetwork).
+   * On l'attache au joueur correspondant pour affichage en bulle.
+   */
+  _handleChatMessage(userId, text) {
+    const player = this._ensurePlayer(userId);
+    player.showChatBubble(text);
   }
 };

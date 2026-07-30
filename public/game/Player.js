@@ -36,11 +36,33 @@ window.Game.Player = class Player {
     this.direction = 'down';
     this.isMoving = false;
     this.animTime = 0;
+
+    // Bulle de chat au-dessus de la tête : dernier message envoyé par ce
+    // joueur, affiché temporairement puis effacé tout seul (voir
+    // showChatBubble / getVisibleChatText).
+    this.chatText = '';
+    this.chatExpiresAt = 0;
   }
 
   setTarget(x, y) {
     this.targetX = x;
     this.targetY = y;
+  }
+
+  /**
+   * Affiche `text` dans une bulle au-dessus du joueur pendant `durationMs`.
+   * Un nouveau message remplace immédiatement le précédent et relance le
+   * minuteur d'affichage.
+   */
+  showChatBubble(text, durationMs = 6000) {
+    this.chatText = text;
+    this.chatExpiresAt = Date.now() + durationMs;
+  }
+
+  /** Texte de bulle encore valide à l'instant `now` (ms), sinon chaîne vide. */
+  getVisibleChatText(now = Date.now()) {
+    if (!this.chatText || now >= this.chatExpiresAt) return '';
+    return this.chatText;
   }
 
   // Rapproche progressivement la position affichée de la dernière

@@ -603,6 +603,21 @@ kbd {
   color: #9fd97a;
 }
 
+.game-overlay__setting {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: #d9c7a3;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.game-overlay__setting input[type='checkbox'] {
+  accent-color: #caa24a;
+  cursor: pointer;
+}
+
 .game-overlay__hint {
   margin-left: auto;
   color: #b6a284;

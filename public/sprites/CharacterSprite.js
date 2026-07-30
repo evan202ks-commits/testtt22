@@ -300,6 +300,92 @@ window.Game.Sprites.CharacterSprite = (function () {
     ctx.restore();
   }
 
+  // Découpe `text` en lignes d'au plus `maxWidth` px (mesuré avec la
+  // police déjà réglée sur ctx), avec un plafond de lignes pour qu'un
+  // message trop long ne prenne jamais tout l'écran.
+  function wrapText(ctx, text, maxWidth, maxLines = 4) {
+    const words = text.split(/\s+/).filter(Boolean);
+    const lines = [];
+    let current = '';
+
+    for (const word of words) {
+      const attempt = current ? `${current} ${word}` : word;
+      if (ctx.measureText(attempt).width > maxWidth && current) {
+        lines.push(current);
+        current = word;
+        if (lines.length === maxLines - 1) break;
+      } else {
+        current = attempt;
+      }
+    }
+    if (current) lines.push(current);
+
+    // S'il reste du texte non consommé (message très long), on tronque
+    // la dernière ligne affichée avec une ellipse plutôt que de déborder.
+    const consumed = lines.join(' ').length;
+    if (consumed < text.length) {
+      let last = lines[lines.length - 1] || '';
+      while (last.length > 1 && ctx.measureText(`${last}…`).width > maxWidth) {
+        last = last.slice(0, -1);
+      }
+      lines[lines.length - 1] = `${last}…`;
+    }
+    return lines;
+  }
+
+  // Bulle de dialogue façon bande dessinée : rectangle arrondi + petite
+  // pointe vers le bas, centrée au-dessus de `x`, base en `y`.
+  function drawChatBubble(ctx, x, y, text, isMe) {
+    ctx.save();
+    ctx.font = '600 12px "Trebuchet MS", Inter, system-ui, sans-serif';
+
+    const paddingX = 10;
+    const paddingY = 7;
+    const lineHeight = 15;
+    const maxTextWidth = 170;
+    const lines = wrapText(ctx, text, maxTextWidth);
+
+    const textWidth = Math.min(maxTextWidth, Math.max(...lines.map((l) => ctx.measureText(l).width)));
+    const boxWidth = textWidth + paddingX * 2;
+    const boxHeight = lines.length * lineHeight + paddingY * 2;
+    const boxX = x - boxWidth / 2;
+    const boxY = y - boxHeight;
+    const tailSize = 6;
+
+    ctx.fillStyle = isMe ? 'rgba(255, 248, 232, 0.96)' : 'rgba(255, 255, 255, 0.96)';
+    ctx.strokeStyle = isMe ? 'rgba(255, 221, 128, 0.9)' : 'rgba(40, 32, 24, 0.35)';
+    ctx.lineWidth = 1.4;
+
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 8);
+    } else {
+      ctx.rect(boxX, boxY, boxWidth, boxHeight);
+    }
+    ctx.fill();
+    ctx.stroke();
+
+    // Pointe de la bulle, vers le bas (côté personnage).
+    ctx.beginPath();
+    ctx.moveTo(x - tailSize, boxY + boxHeight - 1);
+    ctx.lineTo(x + tailSize, boxY + boxHeight - 1);
+    ctx.lineTo(x, boxY + boxHeight + tailSize);
+    ctx.closePath();
+    ctx.fillStyle = isMe ? 'rgba(255, 248, 232, 0.96)' : 'rgba(255, 255, 255, 0.96)';
+    ctx.fill();
+
+    ctx.fillStyle = '#241a10';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    lines.forEach((line, i) => {
+      const ly = boxY + paddingY + lineHeight * i + lineHeight / 2;
+      ctx.fillText(line, x, ly);
+    });
+
+    ctx.restore();
+    return boxHeight + tailSize;
+  }
+
   function drawHpBar(ctx, x, y, width, ratio) {
     const h = 4;
     ctx.save();
@@ -331,6 +417,8 @@ window.Game.Sprites.CharacterSprite = (function () {
      * @param {boolean} [opts.isMe]
      * @param {string} [opts.label]
      * @param {number} [opts.hpRatio] 0..1, vie affichée (par défaut pleine)
+     * @param {string} [opts.chatText] dernier message de chat à afficher
+     *   en bulle au-dessus du personnage (vide/absent = pas de bulle)
      */
     draw(ctx, screen, opts = {}) {
       const {
@@ -342,6 +430,7 @@ window.Game.Sprites.CharacterSprite = (function () {
         isMe = false,
         label = '',
         hpRatio = 1,
+        chatText = '',
       } = opts;
 
       const pal = bodyPalette(userId);
@@ -386,6 +475,10 @@ window.Game.Sprites.CharacterSprite = (function () {
       if (label) {
         drawNameplate(ctx, screen.x, headScreenY - 8, label, isMe);
         drawHpBar(ctx, screen.x, headScreenY + 2, 26, hpRatio);
+      }
+      if (chatText) {
+        // Posée juste au-dessus du nameplate (lui-même au-dessus de la tête).
+        drawChatBubble(ctx, screen.x, headScreenY - 20, chatText, isMe);
       }
     },
   };

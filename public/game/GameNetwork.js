@@ -17,6 +17,10 @@
  * Protocole applicatif du jeu (au-dessus de l'enveloppe générique
  * {from, type, data, timestamp} déjà fournie par le serveur) :
  *   - type "game:move" , data: { x, y }         -> position d'un joueur
+ *   - type "chat"       , data: { text }        -> message de chat (déjà
+ *     émis par public/client.js pour alimenter le panneau de chat) ; on
+ *     l'écoute ICI EN PLUS, sans rien changer à client.js, pour afficher
+ *     le même message dans une bulle au-dessus du personnage concerné.
  * Le roster (qui est dans la salle) réutilise room:users / user:joined /
  * user:left / user:disconnected_temp, déjà diffusés par le serveur.
  * ----------------------------------------------------------------------
@@ -38,6 +42,7 @@ window.Game.GameNetwork = class GameNetwork {
     this._rosterHandler = null;
     this._joinHandler = null;
     this._leaveHandler = null;
+    this._chatHandler = null;
 
     this._onBroadcast = this._onBroadcast.bind(this);
     this._onRoomUsers = this._onRoomUsers.bind(this);
@@ -45,11 +50,12 @@ window.Game.GameNetwork = class GameNetwork {
     this._onUserLeft = this._onUserLeft.bind(this);
   }
 
-  connectHandlers({ onMove, onRosterSync, onPlayerJoined, onPlayerLeft }) {
+  connectHandlers({ onMove, onRosterSync, onPlayerJoined, onPlayerLeft, onChatMessage }) {
     this._moveHandler = onMove;
     this._rosterHandler = onRosterSync;
     this._joinHandler = onPlayerJoined;
     this._leaveHandler = onPlayerLeft;
+    this._chatHandler = onChatMessage;
 
     this.socket.on('message:broadcast', this._onBroadcast);
     this.socket.on('room:users', this._onRoomUsers);
@@ -67,8 +73,14 @@ window.Game.GameNetwork = class GameNetwork {
   }
 
   _onBroadcast(envelope) {
-    if (envelope?.type !== 'game:move' || !envelope.data) return;
-    this._moveHandler?.(envelope.from, envelope.data.x, envelope.data.y);
+    if (!envelope?.type || !envelope.data) return;
+    if (envelope.type === 'game:move') {
+      this._moveHandler?.(envelope.from, envelope.data.x, envelope.data.y);
+      return;
+    }
+    if (envelope.type === 'chat' && typeof envelope.data.text === 'string') {
+      this._chatHandler?.(envelope.from, envelope.data.text);
+    }
   }
 
   _onRoomUsers(users) {

@@ -31,6 +31,8 @@
     const inventoryGrid = document.getElementById('inventoryGrid');
     const inventoryOwnerName = document.getElementById('inventoryOwnerName');
     const btnCloseInventory = document.getElementById('btnCloseInventory');
+    const chatBubblesToggle = document.getElementById('chatBubblesToggle');
+    const CHAT_BUBBLES_STORAGE_KEY = 'realtime-infra:chatBubblesEnabled';
 
     if (!gameOverlay || !chatOverlay || !screenRoom || !canvas || typeof socket === 'undefined' || typeof state === 'undefined') {
       // La page ne contient pas (encore) l'UI attendue, ou client.js n'a
@@ -67,6 +69,22 @@
       gridEl: inventoryGrid,
       closeBtn: btnCloseInventory,
     });
+
+    // ---------------------------------------------------------------
+    // Paramètre : bulles de chat au-dessus des personnages. Préférence
+    // propre à ce navigateur (localStorage), activée par défaut.
+    // ---------------------------------------------------------------
+    if (chatBubblesToggle) {
+      const stored = localStorage.getItem(CHAT_BUBBLES_STORAGE_KEY);
+      const initiallyEnabled = stored === null ? true : stored === '1';
+      chatBubblesToggle.checked = initiallyEnabled;
+      engine.setChatBubblesEnabled(initiallyEnabled);
+
+      chatBubblesToggle.addEventListener('change', () => {
+        engine.setChatBubblesEnabled(chatBubblesToggle.checked);
+        localStorage.setItem(CHAT_BUBBLES_STORAGE_KEY, chatBubblesToggle.checked ? '1' : '0');
+      });
+    }
 
     let inRoom = false;
     let chatOpen = false;
