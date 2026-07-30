@@ -84,8 +84,23 @@ window.Game.mathUtils = (function () {
     return { x: x * scale, y: y * scale };
   }
 
+  // Hauteur (relief) d'une planète en forme de dôme sphérique : 0 au
+  // bord (r = radius), point culminant au centre (r = 0). Une seule
+  // formule, utilisée à la fois pour construire le sol (voir
+  // game/render/PlanetBuilder.js), placer décor/portails, et positionner
+  // les avatars + la caméra à la bonne hauteur — pour que tout reste
+  // visuellement aligné sur la même planète "ronde".
+  function domeHeight(r, radius, bulgeFactor = 1.6) {
+    if (!radius || radius <= 0) return 0;
+    const rs = radius * bulgeFactor;
+    const rr = Math.min(Math.abs(r), radius);
+    const top = Math.sqrt(Math.max(0, rs * rs - rr * rr));
+    const edge = Math.sqrt(Math.max(0, rs * rs - radius * radius));
+    return top - edge;
+  }
+
   return {
     clamp, lerp, smoothTo, hashString, colorForUserId,
-    mulberry32, hash2D, rand2D, clampToDisc,
+    mulberry32, hash2D, rand2D, clampToDisc, domeHeight,
   };
 })();

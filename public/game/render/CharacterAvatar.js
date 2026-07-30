@@ -114,8 +114,8 @@ export function createCharacterAvatar({ color, isLocal }) {
  * (voir game/Player.js) : suit sa position, tourne doucement vers sa
  * direction de déplacement, et fait un léger rebond idle/marche.
  */
-export function updateCharacterAvatar(avatarGroup, player) {
-  avatarGroup.position.set(player.x, 0, player.y);
+export function updateCharacterAvatar(avatarGroup, player, groundY = 0) {
+  avatarGroup.position.set(player.x, groundY, player.y);
 
   // Rotation douce vers la direction de déplacement plutôt qu'un
   // alignement instantané, pour un rendu plus organique.

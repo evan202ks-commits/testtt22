@@ -338,43 +338,85 @@ const DECOR_FACTORIES = {
 };
 
 // ----------------------------------------------------------------------
-// Sol : disque low poly avec un léger dégradé (anneau extérieur plus
-// sombre) pour donner du relief sans texture.
+// Sol : la planète est maintenant une vraie forme ronde — un dôme
+// sphérique low poly (dégradé de couleur du centre vers le bord, via
+// domeHeight — voir window.Game.mathUtils) posé sur un dessous arrondi,
+// pour lire clairement comme "une petite planète", pas un plateau plat.
 // ----------------------------------------------------------------------
 
-function buildGround(planet) {
-  const group = new THREE.Group();
+function buildDomeGround(planet) {
+  const radius = planet.radius;
+  const rings = 14;
+  const segments = 40;
+  const domeHeight = (r) => window.Game.mathUtils.domeHeight(r, radius);
 
-  const base = new THREE.Mesh(
-    new THREE.CircleGeometry(planet.radius, 48),
-    flatMat(planet.groundColor)
-  );
-  base.rotation.x = -Math.PI / 2;
-  base.receiveShadow = false;
-  group.add(base);
+  const positions = [0, domeHeight(0), 0];
+  const colorCenter = new THREE.Color(planet.groundColor);
+  const colorEdge = new THREE.Color(planet.groundColor2);
+  const colors = [colorCenter.r, colorCenter.g, colorCenter.b];
 
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(planet.radius * 0.82, planet.radius * 1.06, 48),
-    flatMat(planet.groundColor2)
-  );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = -0.05;
-  group.add(ring);
+  for (let ring = 1; ring <= rings; ring++) {
+    const t = ring / rings;
+    const r = t * radius;
+    const y = domeHeight(r);
+    const c = colorCenter.clone().lerp(colorEdge, Math.min(1, t * 1.2));
+    for (let seg = 0; seg < segments; seg++) {
+      const a = (seg / segments) * Math.PI * 2;
+      positions.push(Math.cos(a) * r, y, Math.sin(a) * r);
+      colors.push(c.r, c.g, c.b);
+    }
+  }
 
-  // Petit rebord pour suggérer l'épaisseur d'une "petite planète" flottante.
-  const edge = new THREE.Mesh(
-    new THREE.CylinderGeometry(planet.radius * 1.06, planet.radius * 0.9, 10, 40, 1, true),
+  const indices = [];
+  for (let seg = 0; seg < segments; seg++) {
+    indices.push(0, 1 + seg, 1 + ((seg + 1) % segments));
+  }
+  for (let ring = 1; ring < rings; ring++) {
+    const ringStart = 1 + (ring - 1) * segments;
+    const nextStart = 1 + ring * segments;
+    for (let seg = 0; seg < segments; seg++) {
+      const a = ringStart + seg;
+      const b = ringStart + ((seg + 1) % segments);
+      const c = nextStart + seg;
+      const d = nextStart + ((seg + 1) % segments);
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+
+  const mat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    flatShading: true,
+    roughness: 0.85,
+    // Filet de sécurité : si jamais l'ordre des sommets se retrouve
+    // inversé, le sol reste visible des deux côtés plutôt que d'être
+    // invisible depuis la caméra.
+    side: THREE.DoubleSide,
+  });
+  return new THREE.Mesh(geo, mat);
+}
+
+function buildPlanetBelly(planet) {
+  // Dessous arrondi (hémisphère) accroché au bord du dôme (léger
+  // débord pour ne jamais laisser de vide visible à la jointure) :
+  // c'est ce qui donne la silhouette "boule flottante" vue de loin.
+  const belly = new THREE.Mesh(
+    new THREE.SphereGeometry(planet.radius * 1.04, 28, 14, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
     flatMat(planet.groundColor2, { roughness: 1 })
   );
-  edge.position.y = -5;
-  group.add(edge);
-
-  return group;
+  return belly;
 }
 
 function buildPortal(portalConfig, planet) {
   const g = new THREE.Group();
-  g.position.set(portalConfig.pos.x, 0, portalConfig.pos.y);
+  const r = Math.hypot(portalConfig.pos.x, portalConfig.pos.y);
+  const groundY = window.Game.mathUtils.domeHeight(r, planet.radius);
+  g.position.set(portalConfig.pos.x, groundY, portalConfig.pos.y);
 
   const ring = new THREE.Mesh(
     new THREE.TorusGeometry(4.2, 0.6, 10, 24),
@@ -411,7 +453,8 @@ function buildPortal(portalConfig, planet) {
 export function buildPlanetGroup(planet) {
   const group = new THREE.Group();
   group.name = `planet:${planet.id}`;
-  group.add(buildGround(planet));
+  group.add(buildDomeGround(planet));
+  group.add(buildPlanetBelly(planet));
 
   const rng = mulberry32(hashString(planet.id) + 1);
   const spinningPortals = [];
@@ -424,7 +467,8 @@ export function buildPlanetGroup(planet) {
       const angle = rng() * Math.PI * 2;
       const dist = decorMinRadius + rng() * (planet.radius * 0.88 - decorMinRadius);
       const item = factory(rng, planet.accentColor);
-      item.position.set(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
+      const groundY = window.Game.mathUtils.domeHeight(dist, planet.radius);
+      item.position.set(Math.cos(angle) * dist, groundY, Math.sin(angle) * dist);
       item.rotation.y = rng() * Math.PI * 2;
       const scale = 0.85 + rng() * 0.4;
       item.scale.setScalar(scale);

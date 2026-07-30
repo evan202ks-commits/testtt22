@@ -277,6 +277,7 @@ class PlanetRenderer {
     const built = this._ensurePlanetGroup(planetId);
     built.group.visible = true;
     this._activePlanetId = planetId;
+    this._activePlanetRadius = planet.radius;
     this._applyAtmosphere(planet);
     if (this.bannerEl) {
       this.bannerEl.textContent = `${planet.name} — ${planet.subtitle}`;
@@ -325,7 +326,9 @@ class PlanetRenderer {
   updateAvatar(id, player) {
     const avatar = this._avatars.get(id);
     if (!avatar) return;
-    updateCharacterAvatar(avatar, player);
+    const r = Math.hypot(player.x, player.y);
+    const groundY = window.Game.mathUtils.domeHeight(r, this._activePlanetRadius || 200);
+    updateCharacterAvatar(avatar, player, groundY);
   }
 
   // ------------------------------------------------------------------
@@ -334,8 +337,10 @@ class PlanetRenderer {
   // uniquement le déplacement au clavier).
   // ------------------------------------------------------------------
   followTarget(x, y, dt) {
-    const targetPos = new THREE.Vector3(x + this._cameraOffset.x, this._cameraOffset.y, y + this._cameraOffset.z);
-    const targetLookAt = new THREE.Vector3(x, 6, y);
+    const r = Math.hypot(x, y);
+    const groundY = window.Game.mathUtils.domeHeight(r, this._activePlanetRadius || 200);
+    const targetPos = new THREE.Vector3(x + this._cameraOffset.x, groundY + this._cameraOffset.y, y + this._cameraOffset.z);
+    const targetLookAt = new THREE.Vector3(x, groundY + 6, y);
     const rate = 4.5;
     const t = 1 - Math.exp(-rate * dt);
     this._camPos.lerp(targetPos, t);
@@ -348,7 +353,9 @@ class PlanetRenderer {
    * écran en pixels, pour positionner les bulles de chat HTML par-dessus
    * le canvas 3D. Retourne aussi si le point est visible (devant la caméra). */
   projectToScreen(x, y, worldHeight = 11) {
-    const v = new THREE.Vector3(x, worldHeight, y).project(this.camera);
+    const r = Math.hypot(x, y);
+    const groundY = window.Game.mathUtils.domeHeight(r, this._activePlanetRadius || 200);
+    const v = new THREE.Vector3(x, groundY + worldHeight, y).project(this.camera);
     const visible = v.z < 1;
     return {
       x: (v.x * 0.5 + 0.5) * this.width,

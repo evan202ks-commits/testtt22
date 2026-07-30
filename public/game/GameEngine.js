@@ -40,7 +40,7 @@ window.Game.GameEngine = class GameEngine {
     this.players = new Map();
     this._bubbleEls = new Map();
 
-    this.speed = 220; // unités monde / seconde — identique à l'ancienne version
+    this.speed = 165; // unités monde / seconde — ralenti par rapport à la version précédente (220)
     this.gameTime = 0;
 
     this.currentPlanetId = 'hub';
