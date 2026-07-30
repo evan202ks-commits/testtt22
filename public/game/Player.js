@@ -7,7 +7,7 @@
  * monde + état d'animation (direction affichée, en mouvement ou non,
  * horloge d'animation locale). Ne sait rien du réseau ni du rendu : une
  * entité de données pure, mise à jour par GameEngine et lue par
- * IsoRenderer/CharacterSprite.
+ * game/render/PlanetRenderer.js + CharacterAvatar.js pour l'affichage 3D.
  * ----------------------------------------------------------------------
  */
 
@@ -30,12 +30,19 @@ window.Game.Player = class Player {
     this.targetX = x;
     this.targetY = y;
 
-    // État d'animation : direction visuelle (8 sens, voir CharacterSprite),
-    // marche en cours ou non, et horloge locale (avance seulement pendant
-    // le mouvement pour un cycle de marche cohérent).
-    this.direction = 'down';
+    // État d'animation : angle de direction (radians, continu — le
+    // rendu 3D fait tourner la créature en douceur au lieu de sauter
+    // entre 8 sprites), marche en cours ou non, et horloge locale
+    // (avance seulement pendant le mouvement pour un cycle cohérent).
+    this.facingAngle = 0;
     this.isMoving = false;
     this.animTime = 0;
+
+    // Planète courante (voir game/render/PlanetBuilder.js). Purement
+    // informatif pour l'affichage/collision ; ne change rien au protocole
+    // réseau existant (juste un champ de plus dans le payload générique
+    // {x, y, planet} — voir game/GameNetwork.js).
+    this.planet = 'hub';
 
     // Bulle de chat au-dessus de la tête : dernier message envoyé par ce
     // joueur, affiché temporairement puis effacé tout seul (voir
@@ -76,19 +83,18 @@ window.Game.Player = class Player {
 
   /**
    * Met à jour l'état d'animation à partir d'un vecteur de déplacement
-   * MONDE (dx, dy) mesuré sur ce pas de temps. Convertit en vecteur
-   * écran iso pour que la direction affichée corresponde à ce qui est
-   * réellement vu (gauche/droite à l'écran), pas aux axes bruts du monde.
+   * MONDE (dx, dy) mesuré sur ce pas de temps. Le moteur 3D n'a plus
+   * besoin de connaître le renderer ici : l'angle de direction se
+   * calcule directement dans l'espace monde (atan2), et c'est le
+   * renderer qui décide comment l'afficher (rotation douce du modèle).
    */
-  updateAnimation(dt, worldDX, worldDY, renderer) {
+  updateAnimation(dt, worldDX, worldDY) {
     const moveDistSq = worldDX * worldDX + worldDY * worldDY;
     const threshold = 0.02;
     this.isMoving = moveDistSq > threshold * threshold;
 
     if (this.isMoving) {
-      const iso = renderer.worldToScreenVector(worldDX, worldDY);
-      const dir = window.Game.Sprites.CharacterSprite.directionFromIsoVector(iso.x, iso.y);
-      if (dir) this.direction = dir;
+      this.facingAngle = Math.atan2(worldDX, worldDY);
       this.animTime += dt;
     } else {
       this.animTime += dt * 0.5; // continue doucement pour l'animation idle

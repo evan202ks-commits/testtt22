@@ -1,31 +1,44 @@
 /* ======================================================================
-   Identité visuelle : "poste d'opérateur réseau"
-   Fond bleu-nuit profond, accents façon voyants de statut (signal/latence),
-   typographie mono pour tout ce qui est donnée/protocole, sans-serif
-   discrète pour l'UI. Pensé pour une console de test technique, pas pour
-   un site vitrine.
+   Identité visuelle : "univers cosy" — planètes flottantes, coucher de
+   soleil permanent, cartes flottantes arrondies, ombres douces,
+   transitions fluides. Palette pastel chaude, typographie ronde.
+   Tous les id/class lus par client.js, game/main.js et game/Inventory.js
+   sont conservés à l'identique : seuls forme/couleur/mouvement changent.
    ====================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 :root {
-  --bg: #0a0f1a;
-  --bg-grid: #0d1421;
-  --panel: #111a2b;
-  --panel-alt: #0d1524;
-  --border: #1e2c44;
-  --border-soft: #16233a;
-  --text: #dfe6f2;
-  --muted: #7688a3;
-  --muted-dim: #4c5b74;
+  --bg-a: #ffe3c9;
+  --bg-b: #ffd3e6;
+  --bg-c: #d9e3ff;
+  --bg-d: #cdeeff;
 
-  --signal: #33d6b6;       /* connecté / actif */
-  --signal-dim: #1a6b5a;
-  --warn: #f0a83c;         /* reconnexion / grâce */
-  --danger: #ef5b5b;       /* déconnecté / erreur */
+  --panel: rgba(255, 251, 246, 0.82);
+  --panel-alt: rgba(255, 255, 255, 0.55);
+  --panel-solid: #fffaf3;
+  --border: rgba(255, 255, 255, 0.9);
+  --border-soft: rgba(120, 90, 130, 0.12);
 
-  --radius: 10px;
-  --font-ui: 'Inter', system-ui, sans-serif;
+  --text: #4a3b55;
+  --muted: #8d7a97;
+  --muted-dim: #b6a7bd;
+
+  --signal: #52c98a;        /* connecté / actif */
+  --signal-dim: #bdeccf;
+  --signal-ink: #0d3b26;
+  --warn: #ffb15e;          /* reconnexion / grâce */
+  --danger: #ff7d95;        /* déconnecté / erreur */
+  --accent: #7ab8f5;        /* liens / infos secondaires */
+  --accent-lav: #b79bf0;
+
+  --radius: 20px;
+  --radius-sm: 13px;
+  --shadow-soft: 0 10px 28px rgba(120, 80, 120, 0.14), 0 2px 6px rgba(120, 80, 120, 0.08);
+  --shadow-pop: 0 14px 34px rgba(120, 80, 120, 0.2), 0 4px 10px rgba(120, 80, 120, 0.12);
+
+  --font-ui: 'Baloo 2', 'Nunito', system-ui, sans-serif;
+  --font-body: 'Nunito', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 }
 
@@ -38,10 +51,12 @@ html, body {
 
 body {
   background:
-    linear-gradient(var(--bg-grid) 1px, transparent 1px) 0 0 / 100% 28px,
-    var(--bg);
+    radial-gradient(ellipse 900px 500px at 12% -10%, var(--bg-d) 0%, transparent 60%),
+    radial-gradient(ellipse 900px 600px at 100% 0%, var(--bg-c) 0%, transparent 55%),
+    linear-gradient(180deg, var(--bg-b) 0%, var(--bg-a) 100%);
+  background-attachment: fixed;
   color: var(--text);
-  font-family: var(--font-ui);
+  font-family: var(--font-body);
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -49,6 +64,25 @@ body {
 
 code {
   font-family: var(--font-mono);
+}
+
+::selection { background: var(--signal-dim); color: var(--signal-ink); }
+
+/* Scrollbars douces (amélioration cosmétique, dégrade proprement si non
+   supporté par le navigateur). */
+* { scrollbar-width: thin; scrollbar-color: var(--accent-lav) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: rgba(183, 155, 240, 0.5); border-radius: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+@keyframes floatIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 /* ---------------------------------------------------------------- */
@@ -59,10 +93,10 @@ code {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 22px;
+  padding: 14px 24px;
   border-bottom: 1px solid var(--border-soft);
-  background: rgba(13, 20, 33, 0.85);
-  backdrop-filter: blur(6px);
+  background: rgba(255, 251, 246, 0.75);
+  backdrop-filter: blur(10px);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -72,9 +106,11 @@ code {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-family: var(--font-mono);
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-family: var(--font-ui);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  font-size: 16px;
+  color: var(--text);
 }
 
 .topbar__meta {
@@ -82,14 +118,14 @@ code {
   align-items: center;
   gap: 8px;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--muted);
 }
 
 .topbar__label {
   color: var(--muted-dim);
   text-transform: uppercase;
-  font-size: 11px;
+  font-size: 10.5px;
   letter-spacing: 0.08em;
 }
 
@@ -97,33 +133,34 @@ code {
   color: var(--muted-dim);
 }
 
-#myUserId, #myPing {
+#myPing {
   color: var(--signal);
+  font-weight: 600;
 }
 
 .dot {
-  width: 9px;
-  height: 9px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--danger);
-  box-shadow: 0 0 0 3px rgba(239, 91, 91, 0.15);
+  box-shadow: 0 0 0 4px rgba(255, 125, 149, 0.18);
   flex-shrink: 0;
 }
 
 .dot--on {
   background: var(--signal);
-  box-shadow: 0 0 0 4px rgba(51, 214, 182, 0.18);
+  box-shadow: 0 0 0 5px rgba(82, 201, 138, 0.2);
   animation: pulse 2s ease-in-out infinite;
 }
 
 .dot--warn {
   background: var(--warn);
-  box-shadow: 0 0 0 4px rgba(240, 168, 60, 0.18);
+  box-shadow: 0 0 0 5px rgba(255, 177, 94, 0.22);
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.88); }
 }
 
 /* ---------------------------------------------------------------- */
@@ -135,32 +172,37 @@ code {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 40px 20px;
+  padding: 44px 20px;
 }
 
 .screen { width: 100%; max-width: 1100px; }
 .screen--hidden { display: none; }
+.screen:not(.screen--hidden) { animation: floatIn 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
 
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(8px);
 }
 
 /* ---------------------------------------------------------------- */
-/* Écran d'accueil                                                   */
+/* Écran d'accueil / compte                                          */
 /* ---------------------------------------------------------------- */
 
 .panel--intro {
   max-width: 480px;
   margin: 0 auto;
-  padding: 36px;
+  padding: 38px;
 }
 
 .panel--intro h1 {
-  font-size: 22px;
+  font-family: var(--font-ui);
+  font-size: 24px;
   margin: 0 0 10px;
   line-height: 1.3;
+  color: var(--text);
 }
 
 .subtitle {
@@ -172,52 +214,44 @@ code {
 
 .field-label {
   display: block;
+  font-family: var(--font-ui);
   font-size: 12px;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--muted-dim);
+  color: var(--muted);
   margin-bottom: 8px;
 }
 
-input[type="text"] {
+input[type="text"],
+input[type="password"] {
   width: 100%;
-  background: var(--panel-alt);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
+  background: var(--panel-solid);
+  border: 1.5px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: 12px 15px;
   color: var(--text);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 14px;
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
 }
 
-input[type="text"]:focus {
-  border-color: var(--signal);
+input[type="text"]:focus,
+input[type="password"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(122, 184, 245, 0.18);
 }
 
-input[type="text"]::placeholder {
+input[type="text"]::placeholder,
+input[type="password"]::placeholder {
   color: var(--muted-dim);
 }
 
 .actions { margin: 18px 0 0; display: flex; gap: 10px; flex-wrap: wrap; }
 .actions .btn { flex: 1; }
 
-input[type="password"] {
-  width: 100%;
-  background: var(--panel-alt);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 14px;
-  outline: none;
-  transition: border-color 0.15s ease;
-  margin-bottom: 18px;
-}
-input[type="password"]:focus { border-color: var(--signal); }
-input[type="password"]::placeholder { color: var(--muted-dim); }
+input[type="password"] { margin-bottom: 18px; }
 
 .topbar__logout { margin-left: 6px; }
 
@@ -226,7 +260,9 @@ input[type="password"]::placeholder { color: var(--muted-dim); }
   align-items: center;
   text-align: center;
   color: var(--muted-dim);
-  font-size: 12px;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  font-weight: 600;
   margin: 26px 0;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -234,7 +270,7 @@ input[type="password"]::placeholder { color: var(--muted-dim); }
 .divider::before, .divider::after {
   content: "";
   flex: 1;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1.5px dashed var(--border-soft);
 }
 .divider span { padding: 0 12px; }
 
@@ -246,49 +282,52 @@ input[type="password"]::placeholder { color: var(--muted-dim); }
 
 .error {
   color: var(--danger);
+  font-weight: 600;
   font-size: 13px;
   min-height: 18px;
   margin: 14px 0 0;
 }
 
 /* ---------------------------------------------------------------- */
-/* Boutons                                                           */
+/* Boutons — pilule arrondie, petit "pop" au clic, ombre douce.      */
 /* ---------------------------------------------------------------- */
 
 .btn {
   font-family: var(--font-ui);
-  font-weight: 600;
+  font-weight: 700;
   font-size: 14px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 12px 18px;
+  border-radius: 999px;
+  border: 1.5px solid transparent;
+  padding: 12px 20px;
   cursor: pointer;
-  transition: transform 0.08s ease, filter 0.15s ease, background 0.15s ease;
+  transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
   white-space: nowrap;
 }
-.btn:active { transform: translateY(1px); }
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(1px) scale(0.98); }
 
 .btn--primary {
-  background: var(--signal);
-  color: #06251f;
+  background: linear-gradient(180deg, #6be0a4, var(--signal));
+  color: var(--signal-ink);
+  box-shadow: 0 6px 16px rgba(82, 201, 138, 0.35);
 }
-.btn--primary:hover { filter: brightness(1.08); }
+.btn--primary:hover { filter: brightness(1.05); box-shadow: 0 8px 20px rgba(82, 201, 138, 0.42); }
 
 .btn--secondary {
-  background: transparent;
-  border-color: var(--signal-dim);
-  color: var(--signal);
+  background: var(--panel-solid);
+  border-color: var(--accent);
+  color: #2f6fb0;
 }
-.btn--secondary:hover { background: rgba(51, 214, 182, 0.08); }
+.btn--secondary:hover { background: rgba(122, 184, 245, 0.12); }
 
 .btn--ghost {
   background: transparent;
-  border-color: var(--border);
+  border-color: var(--border-soft);
   color: var(--muted);
 }
-.btn--ghost:hover { color: var(--text); border-color: var(--muted-dim); }
+.btn--ghost:hover { color: var(--text); border-color: var(--muted-dim); background: rgba(255, 255, 255, 0.5); }
 
-.btn--small { padding: 7px 12px; font-size: 12px; }
+.btn--small { padding: 7px 14px; font-size: 12.5px; }
 
 /* ---------------------------------------------------------------- */
 /* Écran de salle                                                    */
@@ -306,19 +345,24 @@ input[type="password"]::placeholder { color: var(--muted-dim); }
   align-items: center;
   justify-content: space-between;
   padding: 16px 18px;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1.5px solid var(--border-soft);
 }
 
 .panel__header h2 {
+  font-family: var(--font-ui);
   font-size: 14px;
   margin: 0;
   color: var(--muted);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .panel__header h2 code {
-  color: var(--signal);
-  font-size: 15px;
+  color: #d97a3f;
+  background: rgba(255, 177, 94, 0.18);
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 14px;
+  letter-spacing: 0.04em;
 }
 
 .panel--users {
@@ -331,7 +375,7 @@ input[type="password"]::placeholder { color: var(--muted-dim); }
   padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
   max-height: 60vh;
   overflow-y: auto;
 }
@@ -340,15 +384,19 @@ input[type="password"]::placeholder { color: var(--muted-dim); }
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 9px 10px;
-  border-radius: 7px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
   background: var(--panel-alt);
-  border: 1px solid var(--border-soft);
+  border: 1.5px solid var(--border-soft);
   font-size: 13px;
+  font-weight: 600;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
+.user-list__item:hover { transform: translateX(2px); }
 
 .user-list__item.is-me {
-  border-color: var(--signal-dim);
+  border-color: var(--signal);
+  background: rgba(189, 236, 207, 0.35);
 }
 
 .user-list__name {
@@ -365,7 +413,8 @@ input[type="password"]::placeholder { color: var(--muted-dim); }
 }
 
 .user-list__status {
-  font-size: 10px;
+  font-size: 9.5px;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--warn);
@@ -382,26 +431,26 @@ input[type="password"]::placeholder { color: var(--muted-dim); }
   overflow-y: auto;
   padding: 14px 18px;
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.7;
   display: flex;
   flex-direction: column;
   gap: 4px;
   max-height: 220px;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  background: var(--panel-alt);
+  border: 1.5px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .console-line { white-space: pre-wrap; word-break: break-word; }
 .console-line__time { color: var(--muted-dim); margin-right: 8px; }
 .console-line--system { color: var(--muted); }
-.console-line--in { color: var(--signal); }
-.console-line--out { color: #8fb8ff; }
+.console-line--in { color: #2f9e6e; }
+.console-line--out { color: #4a86c9; }
 .console-line--error { color: var(--danger); }
 
 /* ---------------------------------------------------------------- */
-/* Chat en temps réel                                                */
+/* Chat en temps réel — bulles arrondies façon messagerie cosy       */
 /* ---------------------------------------------------------------- */
 
 .panel--chat {
@@ -413,27 +462,32 @@ input[type="password"]::placeholder { color: var(--muted-dim); }
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 18px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
 .chat-bubble {
-  max-width: 80%;
-  padding: 9px 13px;
-  border-radius: 10px;
-  background: var(--panel-alt);
-  border: 1px solid var(--border-soft);
+  max-width: 78%;
+  padding: 10px 14px;
+  border-radius: 16px;
+  border-bottom-left-radius: 5px;
+  background: var(--panel-solid);
+  border: 1.5px solid var(--border-soft);
+  box-shadow: 0 3px 10px rgba(120, 80, 120, 0.08);
   font-size: 14px;
   line-height: 1.45;
   align-self: flex-start;
+  animation: popIn 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .chat-bubble--mine {
   align-self: flex-end;
-  background: rgba(51, 214, 182, 0.1);
+  background: linear-gradient(180deg, rgba(189, 236, 207, 0.55), rgba(189, 236, 207, 0.32));
   border-color: var(--signal-dim);
+  border-radius: 16px;
+  border-bottom-right-radius: 5px;
 }
 
 .chat-bubble__meta {
@@ -444,12 +498,13 @@ input[type="password"]::placeholder { color: var(--muted-dim); }
 }
 
 .chat-bubble__author {
-  font-weight: 600;
-  font-size: 12.5px;
-  color: var(--signal);
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: 12px;
+  color: #2f6fb0;
 }
 
-.chat-bubble--mine .chat-bubble__author { color: #8fb8ff; }
+.chat-bubble--mine .chat-bubble__author { color: #2f9e6e; }
 
 .chat-bubble__time {
   font-family: var(--font-mono);
@@ -473,19 +528,21 @@ input[type="password"]::placeholder { color: var(--muted-dim); }
   display: flex;
   gap: 10px;
   padding: 14px 18px;
-  border-top: 1px solid var(--border-soft);
+  border-top: 1.5px solid var(--border-soft);
 }
 
-.chat-form input { flex: 1; }
+.chat-form input { flex: 1; border-radius: 999px; padding-left: 18px; }
 
 .advanced {
-  border-top: 1px solid var(--border-soft);
+  border-top: 1.5px solid var(--border-soft);
   padding: 12px 18px 18px;
 }
 
 .advanced summary {
   cursor: pointer;
+  font-family: var(--font-ui);
   font-size: 12.5px;
+  font-weight: 600;
   color: var(--muted);
   padding: 4px 0;
   user-select: none;
@@ -498,7 +555,9 @@ input[type="password"]::placeholder { color: var(--muted-dim); }
 }
 
 .advanced__log-header {
-  font-size: 11px;
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted-dim);
@@ -506,7 +565,7 @@ input[type="password"]::placeholder { color: var(--muted-dim); }
 }
 
 .send-form {
-  border-top: 1px solid var(--border-soft);
+  border-top: 1.5px solid var(--border-soft);
   padding: 14px 18px 18px;
   display: flex;
   flex-direction: column;
@@ -521,12 +580,12 @@ input[type="password"]::placeholder { color: var(--muted-dim); }
 .send-form__row input { flex: 1; }
 
 select {
-  background: var(--panel-alt);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--panel-solid);
+  border: 1.5px solid var(--border-soft);
+  border-radius: var(--radius-sm);
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 12.5px;
   padding: 0 10px;
   min-width: 220px;
 }
@@ -542,27 +601,27 @@ select {
 
 .game-hint {
   margin: 0;
-  padding: 8px 18px;
+  padding: 9px 18px;
   font-size: 12px;
   color: var(--muted);
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1.5px solid var(--border-soft);
 }
 
 kbd {
   font-family: var(--font-mono);
-  background: var(--panel-alt);
-  border: 1px solid var(--border);
-  border-bottom-width: 2px;
-  border-radius: 5px;
-  padding: 1px 6px;
+  background: var(--panel-solid);
+  border: 1.5px solid var(--border-soft);
+  border-bottom-width: 2.5px;
+  border-radius: 6px;
+  padding: 1px 7px;
   font-size: 11px;
   color: var(--text);
 }
 
 /* ---------------------------------------------------------------- */
-/* Overlay du mini-jeu — c'est la vue PAR DÉFAUT dès qu'on est dans  */
-/* une salle (voir game/main.js, qui bascule --active tout seul).   */
-/* Le chat est superposé PAR-DESSUS via #chatOverlay (Tab).         */
+/* Overlay du mini-jeu 3D — vue PAR DÉFAUT dès qu'on est dans une    */
+/* salle (voir game/main.js, qui bascule --active tout seul). Le     */
+/* chat se superpose PAR-DESSUS via #chatOverlay (Tab).              */
 /* ---------------------------------------------------------------- */
 
 .game-overlay {
@@ -571,7 +630,7 @@ kbd {
   z-index: 40;
   display: none;
   flex-direction: column;
-  background: radial-gradient(circle at 50% 40%, #1a2f22 0%, #0a1510 100%);
+  background: radial-gradient(circle at 50% 30%, #4a3560 0%, #241a3d 100%);
 }
 
 .game-overlay--active {
@@ -582,25 +641,28 @@ kbd {
   display: flex;
   align-items: center;
   gap: 18px;
-  padding: 10px 20px;
-  background: linear-gradient(180deg, rgba(42, 28, 14, 0.92), rgba(24, 16, 8, 0.88));
-  border-bottom: 2px solid #6b4a28;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(6px);
-  font-family: 'Trebuchet MS', var(--font-sans, sans-serif);
+  padding: 12px 22px;
+  background: rgba(255, 251, 246, 0.88);
+  border-bottom: 1.5px solid var(--border-soft);
+  box-shadow: 0 4px 16px rgba(30, 15, 45, 0.25);
+  backdrop-filter: blur(10px);
+  font-family: var(--font-body);
   font-size: 12.5px;
-  color: #d9c7a3;
+  color: var(--text);
   flex-shrink: 0;
+  z-index: 2;
 }
 
 .game-overlay__title {
-  color: #f4e2b0;
+  font-family: var(--font-ui);
+  color: #7a4fbf;
   font-weight: 700;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
 }
 
 .game-overlay__count {
-  color: #9fd97a;
+  color: #2f9e6e;
+  font-weight: 600;
 }
 
 .game-overlay__setting {
@@ -608,31 +670,107 @@ kbd {
   align-items: center;
   gap: 6px;
   cursor: pointer;
-  color: #d9c7a3;
+  color: var(--text);
+  font-weight: 600;
   user-select: none;
   white-space: nowrap;
 }
 
 .game-overlay__setting input[type='checkbox'] {
-  accent-color: #caa24a;
+  accent-color: var(--signal);
   cursor: pointer;
 }
 
 .game-overlay__hint {
   margin-left: auto;
-  color: #b6a284;
+  color: var(--muted);
+}
+
+.game-overlay__viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
 }
 
 .game-overlay__canvas {
-  flex: 1;
+  position: absolute;
+  inset: 0;
   width: 100%;
+  height: 100%;
   display: block;
-  cursor: crosshair;
+  cursor: default;
+}
+
+/* Bannière de nom de planète — apparaît brièvement à chaque arrivée   */
+/* sur une planète (voir game/render/PlanetRenderer.js).               */
+.planet-banner {
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  transform: translate(-50%, -14px);
+  padding: 9px 22px;
+  border-radius: 999px;
+  background: rgba(255, 251, 246, 0.88);
+  border: 1.5px solid var(--border);
+  box-shadow: var(--shadow-soft);
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: 14px;
+  color: #7a4fbf;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 15;
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.planet-banner--show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  animation: bannerFade 3.2s ease forwards;
+}
+
+@keyframes bannerFade {
+  0% { opacity: 0; transform: translate(-50%, -14px); }
+  12% { opacity: 1; transform: translate(-50%, 0); }
+  82% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -10px); }
+}
+
+/* Bulles de chat flottant au-dessus des personnages dans le monde 3D  */
+/* (positionnées en JS via un point projeté caméra -> écran, voir      */
+/* game/GameEngine.js::_syncBubbles). Purement visuel, pointer-events  */
+/* désactivés pour ne jamais gêner les clics/déplacements.             */
+.world-bubble-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 12;
+  overflow: hidden;
+}
+
+.world-bubble {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: 220px;
+  padding: 7px 13px;
+  border-radius: 14px;
+  border-bottom-left-radius: 4px;
+  background: rgba(255, 251, 246, 0.94);
+  border: 1.5px solid var(--border);
+  box-shadow: var(--shadow-soft);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--text);
+  text-align: center;
+  white-space: normal;
+  word-break: break-word;
+  animation: popIn 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* ---------------------------------------------------------------- */
-/* HUD RPG : portrait/vie, barre de raccourcis, mini-inventaire.    */
-/* Superposé au canvas (le canvas garde flex:1 pour le rendu).      */
+/* HUD : portrait/vie, mini-inventaire. Superposé au canvas 3D.      */
 /* ---------------------------------------------------------------- */
 
 .rpg-hud {
@@ -645,64 +783,66 @@ kbd {
   align-items: flex-end;
   justify-content: space-between;
   gap: 14px;
-  padding: 12px 16px;
+  padding: 16px 18px;
   pointer-events: none; /* laisse les clics/déplacements passer au canvas */
 }
 
 .rpg-panel-surface {
-  background: linear-gradient(180deg, rgba(48, 32, 16, 0.92), rgba(26, 17, 8, 0.92));
-  border: 2px solid #6b4a28;
-  border-radius: 10px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 230, 180, 0.08);
+  background: rgba(255, 251, 246, 0.88);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(8px);
 }
 
 .rpg-hud__portrait-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 14px 8px 8px;
+  gap: 11px;
+  padding: 9px 16px 9px 9px;
   min-width: 220px;
-  background: linear-gradient(180deg, rgba(48, 32, 16, 0.92), rgba(26, 17, 8, 0.92));
-  border: 2px solid #6b4a28;
-  border-radius: 10px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 230, 180, 0.08);
+  background: rgba(255, 251, 246, 0.88);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(8px);
 }
 
 .rpg-hud__portrait {
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 22px;
-  border-radius: 8px;
-  background: radial-gradient(circle at 35% 30%, #4a6f3a, #223a1a);
-  border: 2px solid #caa24a;
+  border-radius: 14px;
+  background: radial-gradient(circle at 35% 30%, #ffe0b8, #ffb15e);
+  border: 2px solid #fff;
+  box-shadow: 0 3px 8px rgba(255, 177, 94, 0.4);
 }
 
 .rpg-hud__identity {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   flex: 1;
 }
 
 .rpg-hud__name {
-  font-family: 'Trebuchet MS', sans-serif;
+  font-family: var(--font-ui);
   font-weight: 700;
-  font-size: 13px;
-  color: #f4e2b0;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  font-size: 13.5px;
+  color: var(--text);
 }
 
 .rpg-hud__bar {
   position: relative;
   width: 100%;
   height: 13px;
-  border-radius: 4px;
-  background: rgba(10, 8, 6, 0.75);
-  border: 1px solid rgba(0, 0, 0, 0.5);
+  border-radius: 999px;
+  background: rgba(120, 90, 130, 0.12);
+  border: 1px solid rgba(120, 90, 130, 0.1);
   overflow: hidden;
 }
 
@@ -710,15 +850,15 @@ kbd {
   position: absolute;
   inset: 0;
   width: 100%;
-  border-radius: 3px;
+  border-radius: 999px;
 }
 
 .rpg-hud__bar--hp .rpg-hud__bar-fill {
-  background: linear-gradient(180deg, #8fe073, #3f9e3a);
+  background: linear-gradient(90deg, #6be0a4, var(--signal));
 }
 
 .rpg-hud__bar--ap .rpg-hud__bar-fill {
-  background: linear-gradient(180deg, #7fc3f5, #2f7fc0);
+  background: linear-gradient(90deg, #9fd8ff, var(--accent));
 }
 
 .rpg-hud__bar-label {
@@ -726,42 +866,43 @@ kbd {
   z-index: 1;
   display: block;
   text-align: center;
+  font-family: var(--font-ui);
   font-size: 9.5px;
   line-height: 13px;
   font-weight: 700;
-  color: #fff;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.8);
+  color: #2b2436;
 }
 
 .rpg-hud__hotbar {
   display: flex;
-  gap: 6px;
-  padding: 8px;
+  gap: 7px;
+  padding: 9px;
   pointer-events: auto;
-  background: linear-gradient(180deg, rgba(48, 32, 16, 0.92), rgba(26, 17, 8, 0.92));
-  border: 2px solid #6b4a28;
-  border-radius: 10px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 230, 180, 0.08);
+  background: rgba(255, 251, 246, 0.88);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(8px);
 }
 
 .rpg-slot {
   position: relative;
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 17px;
-  background: radial-gradient(circle at 35% 30%, #3a2c1a, #1c140b);
-  border: 1.5px solid #8a6238;
-  border-radius: 6px;
-  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+  font-size: 18px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1.5px solid var(--border-soft);
+  border-radius: 12px;
+  transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.14s ease, border-color 0.14s ease;
 }
 
 .rpg-slot--active {
   transform: translateY(-3px) scale(1.08);
-  border-color: #f4c96a;
-  box-shadow: 0 0 10px rgba(244, 201, 106, 0.7);
+  border-color: var(--warn);
+  box-shadow: 0 0 0 4px rgba(255, 177, 94, 0.28);
 }
 
 .rpg-slot__key {
@@ -770,35 +911,36 @@ kbd {
   right: 3px;
   font-size: 8px;
   font-family: var(--font-mono);
-  color: #d9c7a3;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.8);
+  color: var(--muted);
 }
 
 .rpg-hud__inventory {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
+  gap: 7px;
+  padding: 10px 12px;
   min-width: 150px;
   pointer-events: auto;
-  background: linear-gradient(180deg, rgba(48, 32, 16, 0.92), rgba(26, 17, 8, 0.92));
-  border: 2px solid #6b4a28;
-  border-radius: 10px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 230, 180, 0.08);
+  background: rgba(255, 251, 246, 0.88);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(8px);
 }
 
 .rpg-hud__inventory-title {
+  font-family: var(--font-ui);
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.4px;
   text-transform: uppercase;
-  color: #c9a86a;
+  color: #7a4fbf;
 }
 
 .rpg-hud__inventory-grid {
   display: grid;
   grid-template-columns: repeat(4, 30px);
-  gap: 5px;
+  gap: 6px;
 }
 
 .rpg-hud__inventory-grid .rpg-slot {
@@ -820,8 +962,8 @@ kbd {
 
 /* ---------------------------------------------------------------- */
 /* Overlay du chat — flotte par-dessus le jeu, ouvert/fermé avec Tab.*/
-/* Le jeu (canvas + boucle) continue de tourner en dessous, jamais   */
-/* interrompu par l'ouverture du chat.                              */
+/* Le jeu (rendu 3D + boucle) continue de tourner en dessous, jamais */
+/* interrompu par l'ouverture du chat.                               */
 /* ---------------------------------------------------------------- */
 
 .chat-overlay {
@@ -830,13 +972,14 @@ kbd {
   z-index: 70;
   display: none;
   overflow-y: auto;
-  background: rgba(6, 10, 18, 0.72);
-  backdrop-filter: blur(10px);
+  background: rgba(74, 53, 96, 0.42);
+  backdrop-filter: blur(14px);
 }
 
 .chat-overlay--active {
   display: block;
 }
+.chat-overlay--active .layout--overlay { animation: floatIn 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
 
 .layout--overlay {
   min-height: 100%;
@@ -865,18 +1008,19 @@ kbd {
   display: none;
   align-items: center;
   justify-content: center;
-  background: rgba(6, 10, 18, 0.6);
-  backdrop-filter: blur(6px);
+  background: rgba(74, 53, 96, 0.35);
+  backdrop-filter: blur(10px);
 }
 
 .inventory-overlay--active {
   display: flex;
 }
+.inventory-overlay--active .inventory-panel { animation: popIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1); }
 
 .inventory-panel {
   width: min(360px, 90vw);
-  padding: 16px 18px 18px;
-  font-family: 'Trebuchet MS', var(--font-sans, sans-serif);
+  padding: 18px 20px 20px;
+  font-family: var(--font-body);
 }
 
 .inventory-panel__header {
@@ -889,47 +1033,54 @@ kbd {
 
 .inventory-panel__title {
   margin: 0;
-  font-size: 15px;
+  font-family: var(--font-ui);
+  font-size: 16px;
   font-weight: 700;
-  color: #f4e2b0;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  color: #7a4fbf;
 }
 
 .inventory-panel__hint {
   margin: 4px 0 14px;
   font-size: 11.5px;
-  color: #b6a284;
+  color: var(--muted);
 }
 
 .inventory-grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 8px;
+  gap: 9px;
 }
 
 .inventory-slot {
   width: 100%;
   aspect-ratio: 1 / 1;
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1.5px solid var(--border-soft);
+  border-radius: 12px;
+  transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+.inventory-slot:hover { transform: translateY(-2px); }
 
 .inventory-slot--empty {
-  opacity: 0.55;
+  opacity: 0.5;
 }
 
 .inventory-slot__icon {
-  font-size: 18px;
+  font-size: 19px;
 }
 
 .inventory-slot__qty {
   position: absolute;
-  bottom: 1px;
-  right: 3px;
+  bottom: 2px;
+  right: 4px;
   font-size: 9.5px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  color: #f4e2b0;
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.9);
+  font-weight: 800;
+  font-family: var(--font-ui);
+  color: #7a4fbf;
 }
 
 @media (max-width: 480px) {

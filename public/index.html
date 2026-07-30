@@ -3,15 +3,27 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Infra Temps Réel — Console</title>
+<title>Constellation — Univers cosy</title>
 <link rel="stylesheet" href="style.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<!-- Three.js chargé en ESM depuis un CDN, sans étape de build : le
+     navigateur de l'utilisateur le télécharge au lancement (aucune
+     dépendance npm supplémentaire côté serveur). -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
 </head>
 <body>
 
   <div class="topbar">
     <div class="topbar__brand">
       <span class="dot dot--off" id="statusDot"></span>
-      <span class="topbar__title">realtime-comm-infra</span>
+      <span class="topbar__title">✦ Constellation</span>
     </div>
     <div class="topbar__meta">
       <span class="topbar__label">Compte</span>
@@ -90,8 +102,8 @@
   <!-- ============================================================ -->
   <div id="gameOverlay" class="game-overlay">
     <div class="game-overlay__hud">
-      <span class="game-overlay__title">⚔️ Royaume en ligne</span>
-      <span class="game-overlay__count"><span id="gamePlayerCount">0</span> aventurier(s) sur l'île</span>
+      <span class="game-overlay__title">🪐 Constellation</span>
+      <span class="game-overlay__count"><span id="gamePlayerCount">0</span> voyageur(s) dans les environs</span>
       <label class="game-overlay__setting" title="Affiche le dernier message de chaque joueur dans une bulle au-dessus de son personnage">
         <input type="checkbox" id="chatBubblesToggle" checked />
         🗨️ Bulles de chat
@@ -99,7 +111,11 @@
       <span class="game-overlay__hint">Déplacement : ZQSD / flèches · <kbd>Tab</kbd> pour le chat · <kbd>E</kbd> pour le sac</span>
     </div>
 
-    <canvas id="gameCanvas" class="game-overlay__canvas"></canvas>
+    <div class="game-overlay__viewport">
+      <canvas id="gameCanvas" class="game-overlay__canvas"></canvas>
+      <div id="planetBanner" class="planet-banner"></div>
+      <div id="worldBubbleLayer" class="world-bubble-layer" aria-live="polite"></div>
+    </div>
 
     <!-- ============================================================ -->
     <!-- HUD RPG : portrait + vie du joueur, mini-inventaire, barre de -->
@@ -109,9 +125,9 @@
     <!-- ============================================================ -->
     <div class="rpg-hud">
       <div class="rpg-hud__portrait-card">
-        <div class="rpg-hud__portrait">🧙</div>
+        <div class="rpg-hud__portrait">🧑‍🚀</div>
         <div class="rpg-hud__identity">
-          <span class="rpg-hud__name" id="hudPlayerName">Aventurier</span>
+          <span class="rpg-hud__name" id="hudPlayerName">Voyageur</span>
           <div class="rpg-hud__bar rpg-hud__bar--hp">
             <div class="rpg-hud__bar-fill" id="hudHpFill" style="width:100%"></div>
             <span class="rpg-hud__bar-label">PV 100/100</span>
@@ -133,7 +149,7 @@
     <div id="inventoryOverlay" class="inventory-overlay">
       <div class="inventory-panel rpg-panel-surface">
         <div class="inventory-panel__header">
-          <h2 class="inventory-panel__title">🎒 Sac de <span id="inventoryOwnerName">Aventurier</span></h2>
+          <h2 class="inventory-panel__title">🎒 Sac de <span id="inventoryOwnerName">Voyageur</span></h2>
           <button id="btnCloseInventory" class="btn btn--ghost btn--small" type="button">Fermer</button>
         </div>
         <p class="inventory-panel__hint">Appuyez sur <kbd>E</kbd> ou <kbd>Échap</kbd> pour fermer</p>
@@ -214,15 +230,19 @@
   <!-- Ils se branchent sur `socket` et `state` (définis ci-dessus par-->
   <!-- client.js) sans jamais les modifier.                          -->
   <script src="game/mathUtils.js"></script>
-  <script src="sprites/TerrainAtlas.js"></script>
-  <script src="sprites/DecorSprites.js"></script>
-  <script src="sprites/CharacterSprite.js"></script>
-  <script src="sprites/IslandMap.js"></script>
-  <script src="game/IsoRenderer.js"></script>
   <script src="game/Player.js"></script>
   <script src="game/Inventory.js"></script>
   <script src="game/InputManager.js"></script>
   <script src="game/GameNetwork.js"></script>
+
+  <!-- Rendu 3D (Three.js, chargé via l'import map ci-dessus). Module ES -->
+  <!-- unique : ses propres dépendances (PlanetBuilder, CharacterAvatar) -->
+  <!-- sont importées automatiquement. Un script "module" s'exécute      -->
+  <!-- toujours après le HTML parsé et avant DOMContentLoaded, donc      -->
+  <!-- window.Game.PlanetRenderer est garanti prêt quand game/main.js    -->
+  <!-- démarre le moteur ci-dessous.                                      -->
+  <script type="module" src="game/render/PlanetRenderer.js"></script>
+
   <script src="game/GameEngine.js"></script>
   <script src="game/main.js"></script>
 </body>

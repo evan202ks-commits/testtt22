@@ -73,8 +73,19 @@ window.Game.mathUtils = (function () {
     return mulberry32(hash2D(x, y, seed))();
   }
 
+  // Contraint un point (x, y) à l'intérieur d'un disque de rayon `radius`
+  // centré sur l'origine. Sert de zone de collision pour chaque planète
+  // (voir game/render/PlanetBuilder.js) — même principe que l'ancien
+  // clampToIsland, généralisé pour un rayon variable par biome.
+  function clampToDisc(x, y, radius) {
+    const dist = Math.sqrt(x * x + y * y);
+    if (dist <= radius || dist === 0) return { x, y };
+    const scale = radius / dist;
+    return { x: x * scale, y: y * scale };
+  }
+
   return {
     clamp, lerp, smoothTo, hashString, colorForUserId,
-    mulberry32, hash2D, rand2D,
+    mulberry32, hash2D, rand2D, clampToDisc,
   };
 })();

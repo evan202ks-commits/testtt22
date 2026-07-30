@@ -32,6 +32,8 @@
     const inventoryOwnerName = document.getElementById('inventoryOwnerName');
     const btnCloseInventory = document.getElementById('btnCloseInventory');
     const chatBubblesToggle = document.getElementById('chatBubblesToggle');
+    const worldBubbleLayer = document.getElementById('worldBubbleLayer');
+    const planetBanner = document.getElementById('planetBanner');
     const CHAT_BUBBLES_STORAGE_KEY = 'realtime-infra:chatBubblesEnabled';
 
     if (!gameOverlay || !chatOverlay || !screenRoom || !canvas || typeof socket === 'undefined' || typeof state === 'undefined') {
@@ -48,7 +50,7 @@
     // persistant en localStorage, jamais partagé entre deux joueurs.
     // ---------------------------------------------------------------
     function refreshHudIdentity() {
-      if (hudPlayerName) hudPlayerName.textContent = state.myUsername || 'Aventurier';
+      if (hudPlayerName) hudPlayerName.textContent = state.myUsername || 'Voyageur';
     }
 
     const engine = new window.Game.GameEngine({
@@ -62,6 +64,8 @@
       onRosterChange: (count) => {
         if (hudCount) hudCount.textContent = String(count);
       },
+      bubbleLayerEl: worldBubbleLayer,
+      bannerEl: planetBanner,
     });
 
     const inventory = new window.Game.Inventory({
@@ -100,7 +104,7 @@
 
     function toggleInventory() {
       if (!inRoom) return;
-      if (inventoryOwnerName) inventoryOwnerName.textContent = state.myUsername || 'Aventurier';
+      if (inventoryOwnerName) inventoryOwnerName.textContent = state.myUsername || 'Voyageur';
       inventory.toggleFor(state.myUserId);
     }
 
