@@ -16,7 +16,7 @@ SRC = "/mnt/user-data/uploads/1785583176702_image.png"
 OUT_DIR = "public/assets/sprites/characters"
 BG = (112, 68, 128)
 
-FRAME_W, FRAME_H = 96, 128
+FRAME_W, FRAME_H = 128, 128
 DIRECTIONS = ["down", "left", "right", "up"]
 
 # Cellule (colonne, ligne) dans la planche 4x2 fournie, par direction
@@ -73,9 +73,10 @@ def extract_pose(col, row, bbox):
     return cell
 
 
-def fit_to_frame(img, w=FRAME_W, h=FRAME_H, bottom_margin=6):
-    # échelle pour tenir dans le cadre (marge), aligné bas + centré horizontalement
-    scale = min((w - 8) / img.width, (h - bottom_margin - 6) / img.height)
+def fit_to_frame(img, scale, w=FRAME_W, h=FRAME_H, bottom_margin=6):
+    # Échelle commune passée par l'appelant (voir main()) : le personnage
+    # doit avoir la MÊME taille apparente dans les 4 directions. Aligné
+    # bas + centré horizontalement dans le cadre.
     new_size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
     resized = img.resize(new_size, Image.LANCZOS)
     canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -135,11 +136,19 @@ def build_state_sheet(state, cfg, base_frames):
 
 
 def main():
-    base_frames = {}
-    for direction, (col, row, bbox) in POSE_FOR_DIRECTION.items():
-        pose = extract_pose(col, row, bbox)
-        base_frames[direction] = fit_to_frame(pose)
-        base_frames[direction].save(f"{OUT_DIR}/_debug_{direction}.png")
+    crops = {d: extract_pose(*cfg) for d, cfg in POSE_FOR_DIRECTION.items()}
+
+    # Échelle COMMUNE aux 4 directions (basée sur la hauteur moyenne des
+    # silhouettes extraites) : le personnage doit garder la même taille
+    # apparente qu'il regarde vers le bas, le haut, la gauche ou la
+    # droite — voir fit_to_frame().
+    top_margin, bottom_margin = 6, 6
+    avg_h = sum(im.height for im in crops.values()) / len(crops)
+    scale = (FRAME_H - top_margin - bottom_margin) / avg_h
+
+    base_frames = {d: fit_to_frame(im, scale, bottom_margin=bottom_margin) for d, im in crops.items()}
+    for d, im in base_frames.items():
+        im.save(f"{OUT_DIR}/_debug_{d}.png")
 
     for state, cfg in ANIMATIONS.items():
         build_state_sheet(state, cfg, base_frames)

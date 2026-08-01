@@ -1,5 +1,5 @@
 {
-  "frameSize": [96, 128],
+  "frameSize": [128, 128],
   "directions": ["down", "left", "right", "up"],
   "animations": {
     "idle": { "frames": 4, "fps": 5, "loop": true },
