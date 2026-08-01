@@ -1,0 +1,4 @@
+{
+  "source": "emoji",
+  "note": "Le sac (game/Inventory.js) utilise des emoji par défaut pour ne rien changer à la logique/données existantes (localStorage). Pour un pack d'icônes personnalisé : déposer les fichiers ici et ajouter un mapping { \"nom-objet\": \"fichier.png\" } — l'écran d'inventaire pourra alors préférer l'icône trouvée ici, sans changer les données sauvegardées."
+}

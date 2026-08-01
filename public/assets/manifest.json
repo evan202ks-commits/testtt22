@@ -1,0 +1,14 @@
+{
+  "theme": "cosy-nature",
+  "activeCharacterSkin": "hero-default",
+  "characters": {
+    "hero-default": {
+      "spriteDir": "sprites/characters",
+      "prefix": "hero-default",
+      "animationManifest": "animations/hero-default.json"
+    }
+  },
+  "tilesets": "tilesets/tilesets.json",
+  "vfx": "vfx/vfx.json",
+  "icons": "icons/icons.json"
+}

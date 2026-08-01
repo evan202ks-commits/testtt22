@@ -1,0 +1,14 @@
+{
+  "grass": { "file": "grass.png", "tileWorldSize": 48 },
+  "grass-meadow": { "file": "grass-meadow.png", "tileWorldSize": 48 },
+  "grass-forest": { "file": "grass-forest.png", "tileWorldSize": 48 },
+  "dirt-path": { "file": "dirt-path.png", "tileWorldSize": 40 },
+  "sand": { "file": "sand.png", "tileWorldSize": 40 },
+  "stone": { "file": "stone.png", "tileWorldSize": 40 },
+  "water": { "frames": ["water-0.png", "water-1.png", "water-2.png"], "fps": 2, "tileWorldSize": 64 },
+  "flora": {
+    "file": "flora.png",
+    "cellSize": 48,
+    "cells": { "grass-tuft": 0, "flower-red": 1, "flower-yellow": 2, "flower-white": 3, "bush": 4 }
+  }
+}
