@@ -1,0 +1,12 @@
+{
+  "frameSize": [96, 128],
+  "directions": ["down", "left", "right", "up"],
+  "animations": {
+    "idle": { "frames": 4, "fps": 5, "loop": true },
+    "walk": { "frames": 6, "fps": 8, "loop": true },
+    "run": { "frames": 6, "fps": 12, "loop": true },
+    "interact": { "frames": 4, "fps": 8, "loop": false },
+    "harvest": { "frames": 5, "fps": 8, "loop": false },
+    "attack": { "frames": 4, "fps": 10, "loop": false }
+  }
+}

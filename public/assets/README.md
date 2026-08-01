@@ -14,6 +14,12 @@ code** (voir `/tools/gen_character_sheets.py` et
 fait main. L'architecture est faite pour qu'un vrai pack (acheté,
 commandé, ou dessiné) les remplace directement.
 
+**Exemple concret déjà en place** : le skin `shepherd` (personnage actif
+par défaut) vient d'un vrai artwork fourni par l'utilisateur, découpé et
+mis en forme par `/tools/gen_shepherd_from_upload.py` — c'est la
+première "vraie" utilisation du pipeline décrit ci-dessous, à prendre
+comme modèle pour ajouter d'autres skins.
+
 ## Ajouter un nouveau personnage (skin)
 
 1. Fournir 6 feuilles de sprites PNG, une par animation

@@ -1,11 +1,16 @@
 {
   "theme": "cosy-nature",
-  "activeCharacterSkin": "hero-default",
+  "activeCharacterSkin": "shepherd",
   "characters": {
     "hero-default": {
       "spriteDir": "sprites/characters",
       "prefix": "hero-default",
       "animationManifest": "animations/hero-default.json"
+    },
+    "shepherd": {
+      "spriteDir": "sprites/characters",
+      "prefix": "shepherd",
+      "animationManifest": "animations/shepherd.json"
     }
   },
   "tilesets": "tilesets/tilesets.json",

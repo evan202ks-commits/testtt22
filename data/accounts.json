@@ -1,0 +1,10 @@
+[
+  {
+    "id": "acc_bb09f7ba-cc96-40eb-bbfc-c2b7c7039eab",
+    "username": "dev",
+    "usernameLower": "dev",
+    "passwordHash": "18f562babc557e3bcc43ade93dd7b31f4da1bc04fe58169c37c3e2eeb27b85cbf8d9c61bb66bcc3bfb08fd0dc84d1c9ffa1e436f1e73021536a58c99ef25d32c",
+    "salt": "c4b658495401156d2cb1e601bdb6d9bb",
+    "createdAt": 1785575358870
+  }
+]
