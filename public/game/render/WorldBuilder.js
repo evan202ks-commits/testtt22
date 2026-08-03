@@ -155,32 +155,8 @@ window.Game = window.Game || {};
     grassRadius(angle) {
       return islandRadiusFn(angle) - CLIFF_BAND;
     },
-    decor: [
-      { type: 'tree', count: 16 },
-      { type: 'appleTree', count: 5 },
-      { type: 'bush', count: 14 },
-      { type: 'rock', count: 9 },
-      { type: 'flower', count: 26 },
-      { type: 'mushroom', count: 6 },
-      { type: 'stump', count: 3 },
-    ],
-    // Éléments fixes (mise en scène façon "campement cosy") : positions
-    // choisies à la main plutôt que tirées au sort, pour composer une
-    // scène lisible (cabane au nord, jardin à sa droite, feu de camp,
-    // ponton + barque au sud...).
-    landmarks: [
-      { type: 'cabin', x: -10, y: -200 },
-      { type: 'barrel', x: -150, y: -110 },
-      { type: 'barrel', x: 150, y: -130 },
-      { type: 'gardenPatch', x: 290, y: -110 },
-      { type: 'campfire', x: 220, y: 95 },
-      { type: 'signpost', x: -170, y: 60 },
-      { type: 'stump', x: -350, y: -30 },
-      { type: 'lamp', x: -78, y: 165, scale: 0.9 },
-      { type: 'lamp', x: 78, y: 165, scale: 0.9 },
-      { type: 'dock', x: 0, y: 470 },
-      { type: 'boat', x: 115, y: 500 },
-    ],
+    decor: [],
+    landmarks: [],
   };
 
   /**
