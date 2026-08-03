@@ -39,7 +39,6 @@ window.Game.GameEngine = class GameEngine {
     this.world = window.Game.WorldBuilder.WORLD;
     this.input = new window.Game.InputManager();
     this.network = new window.Game.GameNetwork(socket);
-    this.climb = new window.Game.ClimbController();
 
     /** @type {Map<string, InstanceType<typeof window.Game.Player>>} */
     this.players = new Map();
@@ -108,7 +107,6 @@ window.Game.GameEngine = class GameEngine {
     this.network.disconnectHandlers();
     this.input.disable();
     window.removeEventListener('resize', this._boundResize);
-    this.climb.reset();
 
     for (const id of this.players.keys()) this.renderer.removeAvatar(id);
     this._clearBubbles();
@@ -147,35 +145,22 @@ window.Game.GameEngine = class GameEngine {
     if (!me) return;
 
     const dir = this.input.getDirection();
-    const holdingMove = dir.x !== 0 || dir.y !== 0;
     const prevX = me.x;
     const prevY = me.y;
-
-    if (this.climb.isClimbing) {
-      this._updateClimbing(me, dt, holdingMove);
-    } else {
-      if (holdingMove) {
-        const running = this.input.isRunning();
-        const speed = running ? this.speedRun : this.speedWalk;
-        const nextX = me.x + dir.x * speed * dt;
-        const nextY = me.y + dir.y * speed * dt;
-        // resolvePlayerMove contraint à la fois au contour de l'île ET aux
-        // montagnes (couronne rocheuse infranchissable, sauf aux échelles).
-        const clamped = window.Game.WorldBuilder.resolvePlayerMove(me.x, me.y, nextX, nextY, 24);
-        me.x = clamped.x;
-        me.y = clamped.y;
-        me.targetX = me.x;
-        me.targetY = me.y;
-        this.network.sendPosition(me.x, me.y);
-      }
-      // Pas encore en escalade : vérifie si le joueur se tient au bout
-      // d'une échelle en poussant dedans, pour en démarrer une (voir
-      // game/Climbing.js). Ne change rien à la position ce tick — c'est
-      // la branche ci-dessus (this.climb.isClimbing) qui prendra le
-      // relais dès la frame suivante.
-      this.climb.update(dt, me.x, me.y, holdingMove);
+    if (dir.x !== 0 || dir.y !== 0) {
+      const running = this.input.isRunning();
+      const speed = running ? this.speedRun : this.speedWalk;
+      const nextX = me.x + dir.x * speed * dt;
+      const nextY = me.y + dir.y * speed * dt;
+      // resolvePlayerMove contraint à la fois au contour de l'île ET aux
+      // montagnes (couronne rocheuse infranchissable, sauf aux échelles).
+      const clamped = window.Game.WorldBuilder.resolvePlayerMove(me.x, me.y, nextX, nextY, 24);
+      me.x = clamped.x;
+      me.y = clamped.y;
+      me.targetX = me.x;
+      me.targetY = me.y;
+      this.network.sendPosition(me.x, me.y);
     }
-
     me.updateAnimation(dt, me.x - prevX, me.y - prevY);
 
     for (const player of this.players.values()) {
@@ -190,35 +175,11 @@ window.Game.GameEngine = class GameEngine {
     this.renderer.setTime(this.gameTime);
   }
 
-  /** Fait avancer une escalade en cours et applique la position résultante
-   * au joueur local (voir game/Climbing.js pour la logique de progression). */
-  _updateClimbing(me, dt, holdingMove) {
-    const evt = this.climb.update(dt, me.x, me.y, holdingMove);
-    if (evt === 'completed') {
-      const finalPos = this.climb.consumeCompletedPosition();
-      me.x = finalPos.x;
-      me.y = finalPos.y;
-    } else if (evt !== 'cancelled') {
-      const pos = this.climb.getPosition();
-      if (pos) {
-        me.x = pos.x;
-        me.y = pos.y;
-      }
-    }
-    // En cas d'annulation (progression retombée à 0), le joueur reste où
-    // il est déjà (au point de départ de l'échelle) : rien à faire de plus.
-    me.targetX = me.x;
-    me.targetY = me.y;
-    this.network.sendPosition(me.x, me.y);
-  }
-
   _render(dt) {
     for (const [id, player] of this.players) {
       this.renderer.ensureAvatar(id, { color: player.color, isLocal: player.isLocal });
       this.renderer.updateAvatar(id, player);
     }
-    const session = this.getSessionState();
-    this.renderer.setClimbProgress(session?.myUserId, this.climb.getProgress());
     this._syncBubbles();
     this.renderer.render(dt, this.players);
   }

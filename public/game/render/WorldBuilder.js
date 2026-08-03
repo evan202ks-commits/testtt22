@@ -142,7 +142,6 @@ window.Game = window.Game || {};
   // ------------------------------------------------------------------
   const MOUNTAIN_CLIFF_BAND = 46; // largeur (px monde) de la couronne rocheuse infranchissable
   const LADDER_WIDTH = 42; // largeur (px monde) de la brèche franchissable par l'échelle
-  const LADDER_TRIGGER_RADIUS = 34; // rayon (px monde) de la zone de déclenchement d'escalade, à chaque bout d'échelle
 
   function makeMountainRadiusFn(seed, radiusX, radiusY) {
     const rng = mathUtils.mulberry32(seed);
@@ -165,23 +164,6 @@ window.Game = window.Game || {};
 
   function makeMountain({ id, cx, cy, radiusX, radiusY, ladderAngles, rockColor, capColor }) {
     const seed = mathUtils.hashString(WORLD_ID + ':' + id);
-    const radiusFn = makeMountainRadiusFn(seed, radiusX, radiusY);
-    // Chaque échelle précalcule son point de départ (base, côté herbe) et
-    // d'arrivée (sommet, côté plateau), le long de son angle fixe — c'est
-    // ce couple de points que suit le joueur pendant l'escalade (voir
-    // game/Climbing.js) et qui sert de zone de déclenchement (voir
-    // findLadderInteraction ci-dessous).
-    const ladders = ladderAngles.map((angle) => {
-      const outerR = radiusFn(angle);
-      const innerR = Math.max(12, outerR - MOUNTAIN_CLIFF_BAND);
-      return {
-        angle,
-        outerR,
-        innerR,
-        base: { x: cx + Math.cos(angle) * (outerR + 14), y: cy + Math.sin(angle) * (outerR + 14) },
-        top: { x: cx + Math.cos(angle) * (innerR - 14), y: cy + Math.sin(angle) * (innerR - 14) },
-      };
-    });
     return {
       id,
       cx,
@@ -191,8 +173,8 @@ window.Game = window.Game || {};
       seed,
       rockColor,
       capColor,
-      radiusFn,
-      ladders,
+      radiusFn: makeMountainRadiusFn(seed, radiusX, radiusY),
+      ladders: ladderAngles.map((angle) => ({ angle })),
     };
   }
 
@@ -306,29 +288,6 @@ window.Game = window.Game || {};
       tryPos(prevX, nextY) ||
       clampToIsland(prevX, prevY, margin)
     );
-  }
-
-  /**
-   * Cherche si (x, y) se trouve dans la zone de déclenchement d'une des
-   * deux extrémités d'une échelle (base = côté herbe, top = côté
-   * plateau). Utilisé par game/Climbing.js pour démarrer une escalade
-   * (mode 'up' depuis la base, 'down' depuis le sommet) quand le joueur
-   * maintient une touche de déplacement à cet endroit.
-   */
-  function findLadderInteraction(x, y) {
-    for (const mountain of MOUNTAINS) {
-      for (const ladder of mountain.ladders) {
-        const dBase = Math.hypot(x - ladder.base.x, y - ladder.base.y);
-        if (dBase <= LADDER_TRIGGER_RADIUS) {
-          return { mountain, ladder, mode: 'up', from: ladder.base, to: ladder.top };
-        }
-        const dTop = Math.hypot(x - ladder.top.x, y - ladder.top.y);
-        if (dTop <= LADDER_TRIGGER_RADIUS) {
-          return { mountain, ladder, mode: 'down', from: ladder.top, to: ladder.base };
-        }
-      }
-    }
-    return null;
   }
 
   // Icône = fonction(ctx, w, h, rng, accent) qui peint sur un canvas w×h
@@ -1046,5 +1005,5 @@ window.Game = window.Game || {};
     return { world: WORLD, ground, props };
   }
 
-  window.Game.WorldBuilder = { WORLD, buildWorld, clampToIsland, resolvePlayerMove, findLadderInteraction };
+  window.Game.WorldBuilder = { WORLD, buildWorld, clampToIsland, resolvePlayerMove };
 })();

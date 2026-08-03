@@ -88,7 +88,6 @@ window.Game = window.Game || {};
       this._camY = this.world.spawn.y;
 
       this._avatars = new Map(); // playerId -> { color, isLocal, frame: {col,row}, bobY }
-      this._climb = { userId: null, progress: null };
 
       this.resize();
     }
@@ -114,14 +113,6 @@ window.Game = window.Game || {};
 
     setTime(t) {
       this.time = t;
-    }
-
-    /** Mémorise la progression d'escalade en cours (0..1, ou null) pour
-     * l'afficher en anneau au-dessus de la tête du joueur concerné — voir
-     * game/Climbing.js (lecture) et game/GameEngine.js (appel par frame). */
-    setClimbProgress(userId, progress) {
-      this._climb.userId = userId;
-      this._climb.progress = progress;
     }
 
     // ------------------------------------------------------------------
@@ -246,31 +237,6 @@ window.Game = window.Game || {};
         this.ctx.arc(p.x, p.y - CHAR_HEIGHT / 2, CHAR_WIDTH * 0.32, 0, Math.PI * 2);
         this.ctx.fill();
       }
-
-      if (id === this._climb.userId && this._climb.progress !== null) {
-        this._drawClimbRing(p.x, p.y - CHAR_HEIGHT - avatar.bobY, this._climb.progress);
-      }
-    }
-
-    /** Anneau de progression d'escalade (fond sombre + arc qui se remplit
-     * dans le sens horaire depuis midi), affiché au-dessus de la tête du
-     * joueur qui grimpe une échelle — voir game/Climbing.js. */
-    _drawClimbRing(cx, cy, progress) {
-      const ctx = this.ctx;
-      const y = cy - 14;
-      const radius = CHAR_WIDTH * 0.3;
-      ctx.save();
-      ctx.lineWidth = 5;
-      ctx.lineCap = 'round';
-      ctx.strokeStyle = 'rgba(20,20,20,0.45)';
-      ctx.beginPath();
-      ctx.arc(cx, y, radius, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.strokeStyle = '#6fd84a';
-      ctx.beginPath();
-      ctx.arc(cx, y, radius, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
     }
 
     render(dt, players) {
