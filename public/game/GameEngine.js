@@ -7,32 +7,27 @@
  * joueurs présents, lien entre InputManager, GameNetwork et le renderer.
  * Aucun de ces modules ne se connaît entre eux directement : tout passe
  * par GameEngine, ce qui garde chaque brique indépendante et remplaçable
- * (c'est ce qui a permis de remplacer tout le rendu par du 3D sans
- * toucher au réseau, à l'input ni à l'inventaire).
+ * (c'est ce qui a permis de remplacer tout le rendu 3D par du Canvas 2D
+ * sans toucher au réseau, à l'input ni à l'inventaire).
  *
- * Nouveau dans cette version : plusieurs planètes (voir
- * game/render/PlanetBuilder.js), reliées par des portails. Le
- * changement de planète est géré ICI (détection de proximité + bascule
- * de décor/lumière côté renderer) et voyage dans le protocole réseau
- * EXISTANT en ajoutant simplement un champ `planet` au payload générique
- * {x, y} déjà utilisé (voir game/GameNetwork.js) — le serveur ne le
- * valide pas, il relaie tel quel, donc aucune modification serveur.
+ * Un seul monde désormais (voir game/render/WorldBuilder.js) : plus de
+ * planètes, plus de portails à surveiller. Le déplacement du joueur est
+ * simplement contraint à l'intérieur d'un rectangle (voir
+ * window.Game.mathUtils.clampToRect).
  * ----------------------------------------------------------------------
  */
 
 window.Game = window.Game || {};
 
-const PORTAL_TRIGGER_RADIUS = 11;
-const TRAVEL_COOLDOWN_S = 1.1;
-
 window.Game.GameEngine = class GameEngine {
-  constructor({ canvas, socket, getSessionState, onRosterChange, bubbleLayerEl, bannerEl }) {
+  constructor({ canvas, socket, getSessionState, onRosterChange, bubbleLayerEl }) {
     this.canvas = canvas;
     this.getSessionState = getSessionState;
     this.onRosterChange = onRosterChange || (() => {});
     this.bubbleLayerEl = bubbleLayerEl || null;
 
-    this.renderer = new window.Game.PlanetRenderer(canvas, { bubbleLayerEl, bannerEl });
+    this.renderer = new window.Game.WorldRenderer(canvas, { bubbleLayerEl });
+    this.world = window.Game.WorldBuilder.WORLD;
     this.input = new window.Game.InputManager();
     this.network = new window.Game.GameNetwork(socket);
 
@@ -40,13 +35,8 @@ window.Game.GameEngine = class GameEngine {
     this.players = new Map();
     this._bubbleEls = new Map();
 
-    this.speed = 165; // unités monde / seconde — ralenti par rapport à la version précédente (220)
+    this.speed = 165; // unités monde (px) / seconde
     this.gameTime = 0;
-
-    this.currentPlanetId = 'hub';
-    this._activePlanetConfig = null;
-    this.activePortals = [];
-    this._travelCooldown = 0;
 
     // Paramètre : bulles de chat au-dessus des personnages. Activé par
     // défaut ; peut être coupé via setChatBubblesEnabled (voir main.js).
@@ -71,17 +61,11 @@ window.Game.GameEngine = class GameEngine {
 
     this._running = true;
 
-    const { planet, portalMeshes } = this.renderer.setActivePlanet('hub');
-    this.currentPlanetId = 'hub';
-    this._activePlanetConfig = planet;
-    this.activePortals = portalMeshes;
-    this._travelCooldown = 0;
-
-    this._syncLocalPlayer(session, planet);
+    this._syncLocalPlayer(session);
     this._seedRosterFromSession(session);
 
     this.network.connectHandlers({
-      onMove: (userId, x, y, planetId) => this._handleRemoteMove(userId, x, y, planetId),
+      onMove: (userId, x, y) => this._handleRemoteMove(userId, x, y),
       onRosterSync: (users) => this._handleRosterSync(users),
       onPlayerJoined: (user) => this._handlePlayerJoined(user),
       onPlayerLeft: (userId) => this._handlePlayerLeft(userId),
@@ -94,13 +78,13 @@ window.Game.GameEngine = class GameEngine {
     // Le canvas passe de display:none à display:flex juste avant start() ;
     // sa taille peut être 0 le temps d'un tick. On repousse le premier
     // resize à la frame suivante pour laisser le navigateur finir la mise
-    // en page (même filet de sécurité que l'ancien renderer).
+    // en page.
     requestAnimationFrame(() => {
       this.renderer.resize();
     });
 
     const me = this.players.get(session.myUserId);
-    if (me) this.network.sendPosition(me.x, me.y, this.currentPlanetId, true);
+    if (me) this.network.sendPosition(me.x, me.y, true);
 
     this._lastFrameAt = performance.now();
     this._rafId = requestAnimationFrame(this._loop);
@@ -154,18 +138,16 @@ window.Game.GameEngine = class GameEngine {
     const prevX = me.x;
     const prevY = me.y;
     if (dir.x !== 0 || dir.y !== 0) {
-      let nextX = me.x + dir.x * this.speed * dt;
-      let nextY = me.y + dir.y * this.speed * dt;
-      if (this._activePlanetConfig) {
-        const clamped = window.Game.mathUtils.clampToDisc(nextX, nextY, this._activePlanetConfig.radius * 0.96);
-        nextX = clamped.x;
-        nextY = clamped.y;
-      }
-      me.x = nextX;
-      me.y = nextY;
+      const nextX = me.x + dir.x * this.speed * dt;
+      const nextY = me.y + dir.y * this.speed * dt;
+      const clamped = window.Game.mathUtils.clampToRect(
+        nextX, nextY, this.world.halfWidth - 24, this.world.halfHeight - 24
+      );
+      me.x = clamped.x;
+      me.y = clamped.y;
       me.targetX = me.x;
       me.targetY = me.y;
-      this.network.sendPosition(me.x, me.y, this.currentPlanetId);
+      this.network.sendPosition(me.x, me.y);
     }
     me.updateAnimation(dt, me.x - prevX, me.y - prevY);
 
@@ -179,62 +161,21 @@ window.Game.GameEngine = class GameEngine {
 
     this.renderer.followTarget(me.x, me.y, dt);
     this.renderer.setTime(this.gameTime);
-
-    if (this._travelCooldown > 0) {
-      this._travelCooldown = Math.max(0, this._travelCooldown - dt);
-    } else {
-      this._checkPortals(me);
-    }
-  }
-
-  _checkPortals(me) {
-    for (const portal of this.activePortals) {
-      const dx = me.x - portal.worldX;
-      const dy = me.y - portal.worldY;
-      if (dx * dx + dy * dy <= PORTAL_TRIGGER_RADIUS * PORTAL_TRIGGER_RADIUS) {
-        this._travelTo(portal.to);
-        return;
-      }
-    }
-  }
-
-  _travelTo(planetId) {
-    const session = this.getSessionState();
-    if (!session?.myUserId) return;
-    const me = this.players.get(session.myUserId);
-    if (!me) return;
-
-    const { planet, portalMeshes } = this.renderer.setActivePlanet(planetId);
-    this.currentPlanetId = planetId;
-    this._activePlanetConfig = planet;
-    this.activePortals = portalMeshes;
-    this._travelCooldown = TRAVEL_COOLDOWN_S;
-
-    const spawn = this._spawnPosition(session.myUserId, planet, true);
-    me.x = spawn.x;
-    me.y = spawn.y;
-    me.targetX = spawn.x;
-    me.targetY = spawn.y;
-    me.planet = planetId;
-
-    this.network.sendPosition(me.x, me.y, planetId, true);
-    this._clearBubbles();
   }
 
   _render(dt) {
     for (const [id, player] of this.players) {
       this.renderer.ensureAvatar(id, { color: player.color, isLocal: player.isLocal });
       this.renderer.updateAvatar(id, player);
-      this.renderer.setAvatarVisible(id, player.planet === this.currentPlanetId);
     }
     this._syncBubbles();
-    this.renderer.render(dt);
+    this.renderer.render(dt, this.players);
   }
 
   // ------------------------------------------------------------------
-  // Bulles de chat (overlay HTML par-dessus le canvas 3D — remplace
-  // l'ancien dessin de bulle directement dans le canvas 2D, même
-  // déclencheur : player.getVisibleChatText(), voir game/Player.js).
+  // Bulles de chat (overlay HTML par-dessus le canvas 2D, positionné via
+  // renderer.projectToScreen — même déclencheur que dans Player.js :
+  // player.getVisibleChatText()).
   // ------------------------------------------------------------------
 
   _syncBubbles() {
@@ -242,7 +183,6 @@ window.Game.GameEngine = class GameEngine {
     const seen = new Set();
 
     for (const [id, player] of this.players) {
-      if (player.planet !== this.currentPlanetId) continue;
       const text = this.chatBubblesEnabled ? player.getVisibleChatText() : '';
       if (!text) continue;
       seen.add(id);
@@ -259,13 +199,9 @@ window.Game.GameEngine = class GameEngine {
         el.dataset.text = text;
       }
 
-      const proj = this.renderer.projectToScreen(player.x, player.y, 13);
-      if (!proj.visible) {
-        el.style.display = 'none';
-      } else {
-        el.style.display = '';
-        el.style.transform = `translate(${proj.x}px, ${proj.y}px) translate(-50%, -100%)`;
-      }
+      const proj = this.renderer.projectToScreen(player.x, player.y, 100);
+      el.style.display = '';
+      el.style.transform = `translate(${proj.x}px, ${proj.y}px) translate(-50%, -100%)`;
     }
 
     for (const [id, el] of this._bubbleEls) {
@@ -285,20 +221,22 @@ window.Game.GameEngine = class GameEngine {
   // Gestion des joueurs (roster)
   // ------------------------------------------------------------------
 
-  _spawnPosition(seedId, planet, tight = false) {
+  _spawnPosition(seedId, tight = false) {
     const hash = window.Game.mathUtils.hashString(String(seedId));
     const angle = (hash % 360) * (Math.PI / 180);
-    const dist = tight ? 8 + (hash % 18) : 40 + (hash % Math.min(140, planet.radius * 0.55));
+    const dist = tight ? 20 + (hash % 60) : 60 + (hash % 320);
     const raw = {
-      x: planet.spawn.x + Math.cos(angle) * dist,
-      y: planet.spawn.y + Math.sin(angle) * dist,
+      x: this.world.spawn.x + Math.cos(angle) * dist,
+      y: this.world.spawn.y + Math.sin(angle) * dist,
     };
-    return window.Game.mathUtils.clampToDisc(raw.x, raw.y, planet.radius * 0.9);
+    return window.Game.mathUtils.clampToRect(
+      raw.x, raw.y, this.world.halfWidth - 24, this.world.halfHeight - 24
+    );
   }
 
-  _syncLocalPlayer(session, planet) {
+  _syncLocalPlayer(session) {
     if (this.players.has(session.myUserId)) return;
-    const spawn = this._spawnPosition(session.myUserId, planet);
+    const spawn = this._spawnPosition(session.myUserId, true);
     const me = new window.Game.Player({
       id: session.myUserId,
       username: session.myUsername || 'Moi',
@@ -306,7 +244,6 @@ window.Game.GameEngine = class GameEngine {
       y: spawn.y,
       isLocal: true,
     });
-    me.planet = this.currentPlanetId;
     this.players.set(me.id, me);
     this.renderer.ensureAvatar(me.id, { color: me.color, isLocal: true });
   }
@@ -318,25 +255,19 @@ window.Game.GameEngine = class GameEngine {
 
   _ensurePlayer(id, username) {
     if (this.players.has(id)) return this.players.get(id);
-    const planet = this._activePlanetConfig || { spawn: { x: 0, y: 0 }, radius: 200 };
-    const spawn = this._spawnPosition(id, planet);
+    const spawn = this._spawnPosition(id);
     const player = new window.Game.Player({ id, username, x: spawn.x, y: spawn.y, isLocal: false });
-    // Tout le monde démarre sa session sur 'hub' (voir start()) : c'est
-    // l'hypothèse par défaut la plus fiable tant qu'on n'a pas encore
-    // reçu sa vraie position réseau (qui, elle, porte la bonne planète).
-    player.planet = 'hub';
     this.players.set(id, player);
     this.renderer.ensureAvatar(id, { color: player.color, isLocal: false });
     this.onRosterChange(this.players.size);
     return player;
   }
 
-  _handleRemoteMove(userId, x, y, planetId) {
+  _handleRemoteMove(userId, x, y) {
     const session = this.getSessionState();
     if (userId === session?.myUserId) return; // io.to() renvoie aussi à l'émetteur : on s'ignore soi-même
     const player = this._ensurePlayer(userId);
     player.setTarget(x, y);
-    if (planetId) player.planet = planetId;
   }
 
   _handleRosterSync(users) {

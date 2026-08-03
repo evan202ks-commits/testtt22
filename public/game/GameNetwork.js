@@ -16,9 +16,8 @@
  *
  * Protocole applicatif du jeu (au-dessus de l'enveloppe générique
  * {from, type, data, timestamp} déjà fournie par le serveur) :
- *   - type "game:move" , data: { x, y, planet }  -> position d'un joueur
- *     (planet = id de la planète courante, voir game/render/PlanetBuilder.js ;
- *     purement informatif pour le serveur, qui relaie sans le valider)
+ *   - type "game:move" , data: { x, y } -> position d'un joueur dans le
+ *     monde 2D (un seul monde, plus de champ "planet" à transporter).
  *   - type "chat"       , data: { text }        -> message de chat (déjà
  *     émis par public/client.js pour alimenter le panneau de chat) ; on
  *     l'écoute ICI EN PLUS, sans rien changer à client.js, pour afficher
@@ -77,7 +76,7 @@ window.Game.GameNetwork = class GameNetwork {
   _onBroadcast(envelope) {
     if (!envelope?.type || !envelope.data) return;
     if (envelope.type === 'game:move') {
-      this._moveHandler?.(envelope.from, envelope.data.x, envelope.data.y, envelope.data.planet || 'hub');
+      this._moveHandler?.(envelope.from, envelope.data.x, envelope.data.y);
       return;
     }
     if (envelope.type === 'chat' && typeof envelope.data.text === 'string') {
@@ -103,13 +102,13 @@ window.Game.GameNetwork = class GameNetwork {
    * `force` permet de contourner le throttle (ex: à l'ouverture du jeu,
    * pour que les autres nous voient tout de suite).
    */
-  sendPosition(x, y, planet = 'hub', force = false) {
+  sendPosition(x, y, force = false) {
     const now = Date.now();
     if (!force && now - this._lastSentAt < this._minSendIntervalMs) return;
     this._lastSentAt = now;
     this.socket.emit('message:broadcast', {
       type: 'game:move',
-      data: { x: Math.round(x), y: Math.round(y), planet },
+      data: { x: Math.round(x), y: Math.round(y) },
     });
   }
 };

@@ -1,7 +1,7 @@
 /* ======================================================================
-   Identité visuelle : "univers cosy" — planètes flottantes, coucher de
-   soleil permanent, cartes flottantes arrondies, ombres douces,
-   transitions fluides. Palette pastel chaude, typographie ronde.
+   Identité visuelle : "univers cosy" — prairie 2D vue de dessus, cartes
+   flottantes arrondies, ombres douces, transitions fluides. Palette
+   pastel chaude, typographie ronde.
    Tous les id/class lus par client.js, game/main.js et game/Inventory.js
    sont conservés à l'identique : seuls forme/couleur/mouvement changent.
    ====================================================================== */
@@ -619,7 +619,7 @@ kbd {
 }
 
 /* ---------------------------------------------------------------- */
-/* Overlay du mini-jeu 3D — vue PAR DÉFAUT dès qu'on est dans une    */
+/* Overlay du mini-jeu 2D — vue PAR DÉFAUT dès qu'on est dans une    */
 /* salle (voir game/main.js, qui bascule --active tout seul). Le     */
 /* chat se superpose PAR-DESSUS via #chatOverlay (Tab).              */
 /* ---------------------------------------------------------------- */
@@ -701,43 +701,8 @@ kbd {
   cursor: default;
 }
 
-/* Bannière de nom de planète — apparaît brièvement à chaque arrivée   */
-/* sur une planète (voir game/render/PlanetRenderer.js).               */
-.planet-banner {
-  position: absolute;
-  top: 22px;
-  left: 50%;
-  transform: translate(-50%, -14px);
-  padding: 9px 22px;
-  border-radius: 999px;
-  background: rgba(255, 251, 246, 0.88);
-  border: 1.5px solid var(--border);
-  box-shadow: var(--shadow-soft);
-  font-family: var(--font-ui);
-  font-weight: 700;
-  font-size: 14px;
-  color: #7a4fbf;
-  opacity: 0;
-  pointer-events: none;
-  z-index: 15;
-  transition: opacity 0.5s ease, transform 0.5s ease;
-}
-
-.planet-banner--show {
-  opacity: 1;
-  transform: translate(-50%, 0);
-  animation: bannerFade 3.2s ease forwards;
-}
-
-@keyframes bannerFade {
-  0% { opacity: 0; transform: translate(-50%, -14px); }
-  12% { opacity: 1; transform: translate(-50%, 0); }
-  82% { opacity: 1; transform: translate(-50%, 0); }
-  100% { opacity: 0; transform: translate(-50%, -10px); }
-}
-
-/* Bulles de chat flottant au-dessus des personnages dans le monde 3D  */
-/* (positionnées en JS via un point projeté caméra -> écran, voir      */
+/* Bulles de chat flottant au-dessus des personnages dans le monde 2D  */
+/* (positionnées en JS via un point projeté monde -> écran, voir       */
 /* game/GameEngine.js::_syncBubbles). Purement visuel, pointer-events  */
 /* désactivés pour ne jamais gêner les clics/déplacements.             */
 .world-bubble-layer {
@@ -770,7 +735,7 @@ kbd {
 }
 
 /* ---------------------------------------------------------------- */
-/* HUD : portrait/vie, mini-inventaire. Superposé au canvas 3D.      */
+/* HUD : portrait/vie, mini-inventaire. Superposé au canvas 2D.      */
 /* ---------------------------------------------------------------- */
 
 .rpg-hud {
@@ -962,7 +927,7 @@ kbd {
 
 /* ---------------------------------------------------------------- */
 /* Overlay du chat — flotte par-dessus le jeu, ouvert/fermé avec Tab.*/
-/* Le jeu (rendu 3D + boucle) continue de tourner en dessous, jamais */
+/* Le jeu (rendu 2D + boucle) continue de tourner en dessous, jamais */
 /* interrompu par l'ouverture du chat.                               */
 /* ---------------------------------------------------------------- */
 

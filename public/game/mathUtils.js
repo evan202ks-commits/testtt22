@@ -74,9 +74,10 @@ window.Game.mathUtils = (function () {
   }
 
   // Contraint un point (x, y) à l'intérieur d'un disque de rayon `radius`
-  // centré sur l'origine. Sert de zone de collision pour chaque planète
-  // (voir game/render/PlanetBuilder.js) — même principe que l'ancien
-  // clampToIsland, généralisé pour un rayon variable par biome.
+  // centré sur l'origine. Conservé pour compatibilité éventuelle, mais
+  // le monde du jeu (voir game/render/WorldBuilder.js) est désormais une
+  // carte rectangulaire : c'est clampToRect qui sert de zone de
+  // collision pour le déplacement du joueur.
   function clampToDisc(x, y, radius) {
     const dist = Math.sqrt(x * x + y * y);
     if (dist <= radius || dist === 0) return { x, y };
@@ -84,20 +85,16 @@ window.Game.mathUtils = (function () {
     return { x: x * scale, y: y * scale };
   }
 
-  // Hauteur du sol à une distance `r` du centre de la planète. Le jeu
-  // est volontairement passé à une structure 2D plate façon vieux RPG :
-  // le sol est un disque plat (0 partout, quel que soit r), et c'est la
-  // caméra (angle fixe, légèrement en hauteur — voir PlanetRenderer)
-  // qui donne l'impression de profondeur, pas un relief 3D. Fonction et
-  // signature conservées telles quelles (et toujours utilisées partout :
-  // sol, décor, portails, avatars, caméra — voir game/render/*.js) pour
-  // que ce seul changement suffise à aplatir tout le monde d'un coup.
-  function domeHeight(r, radius, bulgeFactor = 1.6) {
-    return 0;
+  // Contraint un point (x, y) à l'intérieur d'un rectangle centré sur
+  // l'origine, de demi-largeur `halfW` et demi-hauteur `halfH`. Sert de
+  // zone de collision pour la carte 2D (voir game/render/WorldBuilder.js
+  // et game/GameEngine.js).
+  function clampToRect(x, y, halfW, halfH) {
+    return { x: clamp(x, -halfW, halfW), y: clamp(y, -halfH, halfH) };
   }
 
   return {
     clamp, lerp, smoothTo, hashString, colorForUserId,
-    mulberry32, hash2D, rand2D, clampToDisc, domeHeight,
+    mulberry32, hash2D, rand2D, clampToDisc, clampToRect,
   };
 })();
