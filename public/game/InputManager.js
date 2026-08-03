@@ -29,6 +29,7 @@ window.Game.InputManager = class InputManager {
     this._onKeyDown = this._onKeyDown.bind(this);
     this._onKeyUp = this._onKeyUp.bind(this);
     this._onBlur = this._onBlur.bind(this);
+    this._onVisibilityChange = this._onVisibilityChange.bind(this);
   }
 
   enable() {
@@ -37,6 +38,7 @@ window.Game.InputManager = class InputManager {
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('keyup', this._onKeyUp);
     window.addEventListener('blur', this._onBlur);
+    document.addEventListener('visibilitychange', this._onVisibilityChange);
   }
 
   disable() {
@@ -45,6 +47,7 @@ window.Game.InputManager = class InputManager {
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);
     window.removeEventListener('blur', this._onBlur);
+    document.removeEventListener('visibilitychange', this._onVisibilityChange);
     this.pressed.clear();
     this.shiftPressed = false;
   }
@@ -67,10 +70,18 @@ window.Game.InputManager = class InputManager {
   }
 
   _onKeyUp(e) {
+    // Toujours traiter le relâchement de Shift, quelle que soit la cible,
+    // pour éviter que shiftPressed reste bloqué à true si le focus a changé
+    // entre le keydown et le keyup (ex : ouverture du chat en courant).
     if (e.key === 'Shift') {
       this.shiftPressed = false;
+      // Sur certains OS, maintenir Shift absorbe les keyup des touches de
+      // direction : on vide pressed au relâchement pour éviter qu'une
+      // direction reste bloquée après avoir couru.
+      this.pressed.clear();
       return;
     }
+    if (this._isTypingTarget(e.target)) return;
     if (MOVE_KEYS.has(e.key)) {
       this.pressed.delete(e.key);
     }
@@ -79,6 +90,15 @@ window.Game.InputManager = class InputManager {
   _onBlur() {
     this.pressed.clear();
     this.shiftPressed = false;
+  }
+
+  _onVisibilityChange() {
+    // L'onglet passe en arrière-plan : les keyup ne sont plus reçus,
+    // on réinitialise tout pour éviter un personnage bloqué en course.
+    if (document.hidden) {
+      this.pressed.clear();
+      this.shiftPressed = false;
+    }
   }
 
   /**
