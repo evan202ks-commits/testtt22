@@ -132,65 +132,6 @@ window.Game = window.Game || {};
   const bounds = measureBounds(islandRadiusFn);
 
   // ------------------------------------------------------------------
-  // Reliefs : des "montagnes" posées sur l'île, chacune avec sa propre
-  // silhouette irrégulière (mêmes harmoniques sinusoïdales que la côte)
-  // et une couronne rocheuse totalement infranchissable. Reprend
-  // exactement le principe de l'île (boundaryRadius/grassRadius + clamp)
-  // mais "inversé" : ici la bande rocheuse bloque le passage au lieu de
-  // le contenir.
-  // ------------------------------------------------------------------
-  const MOUNTAIN_CLIFF_BAND = 46; // largeur (px monde) de la couronne rocheuse infranchissable
-
-  function makeMountainRadiusFn(seed, radiusX, radiusY) {
-    const rng = mathUtils.mulberry32(seed);
-    const harmonics = [3, 5, 8].map((freq) => ({
-      freq: freq + (rng() < 0.5 ? 0 : 1),
-      amp: 0.08 + rng() * 0.13,
-      phase: rng() * Math.PI * 2,
-    }));
-    return function mountainRadius(angle) {
-      const ellipseR = 1 / Math.sqrt(
-        (Math.cos(angle) / radiusX) ** 2 + (Math.sin(angle) / radiusY) ** 2
-      );
-      let noise = 1;
-      harmonics.forEach((hn) => {
-        noise += hn.amp * Math.sin(hn.freq * angle + hn.phase);
-      });
-      return ellipseR * Math.max(0.72, noise);
-    };
-  }
-
-  function makeMountain({ id, cx, cy, radiusX, radiusY, rockColor, capColor }) {
-    const seed = mathUtils.hashString(WORLD_ID + ':' + id);
-    const radiusFn = makeMountainRadiusFn(seed, radiusX, radiusY);
-    return {
-      id,
-      cx,
-      cy,
-      radiusX,
-      radiusY,
-      seed,
-      rockColor,
-      capColor,
-      radiusFn,
-    };
-  }
-
-  // Une montagne principale, posée sur l'île comme un simple relief
-  // décoratif infranchissable.
-  const MOUNTAINS = [
-    makeMountain({
-      id: 'mont-central',
-      cx: -330,
-      cy: -110,
-      radiusX: 185,
-      radiusY: 145,
-      rockColor: 0x7d7469,
-      capColor: 0x9c8f7a,
-    }),
-  ];
-
-  // ------------------------------------------------------------------
   // Config du monde. Une seule entrée : l'île de départ, un petit
   // campement cosy (cabane, jardin, feu de camp, ponton) où tous les
   // joueurs se retrouvent.
@@ -216,7 +157,6 @@ window.Game = window.Game || {};
     },
     decor: [],
     landmarks: [],
-    mountains: MOUNTAINS,
   };
 
   /**
@@ -235,48 +175,11 @@ window.Game = window.Game || {};
   }
 
   /**
-   * true si (x, y) tombe dans la couronne rocheuse infranchissable d'une
-   * montagne (entre son rayon intérieur = pied du plateau et son rayon
-   * extérieur = base de la falaise). La montagne est maintenant un
-   * simple relief décoratif : sa couronne est bloquante sur toute sa
-   * circonférence, sans aucune brèche.
-   */
-  function isInMountainRing(x, y, mountain) {
-    const dx = x - mountain.cx;
-    const dy = y - mountain.cy;
-    const angle = Math.atan2(dy, dx);
-    const dist = Math.hypot(dx, dy);
-    const outerR = mountain.radiusFn(angle);
-    if (dist > outerR) return false; // en dehors de la montagne
-    const innerR = Math.max(12, outerR - MOUNTAIN_CLIFF_BAND);
-    if (dist < innerR) return false; // sur le plateau : libre (inatteignable désormais)
-    return true; // roche pleine : bloqué
-  }
-
-  function isBlockedByMountains(x, y) {
-    return MOUNTAINS.some((m) => isInMountainRing(x, y, m));
-  }
-
-  /**
    * Résout un déplacement (prevX, prevY) -> (nextX, nextY) en tenant
-   * compte à la fois du contour de l'île (clampToIsland) et des
-   * montagnes (couronnes rocheuses infranchissables). Essaie le
-   * déplacement complet, puis chaque axe séparément (pour
-   * "glisser" le long d'un flanc de montagne comme le long d'un mur),
-   * et reste sur place si tout est bloqué.
+   * compte du contour de l'île (clampToIsland).
    */
   function resolvePlayerMove(prevX, prevY, nextX, nextY, margin = 0) {
-    const tryPos = (x, y) => {
-      const clamped = clampToIsland(x, y, margin);
-      if (isBlockedByMountains(clamped.x, clamped.y)) return null;
-      return clamped;
-    };
-    return (
-      tryPos(nextX, nextY) ||
-      tryPos(nextX, prevY) ||
-      tryPos(prevX, nextY) ||
-      clampToIsland(prevX, prevY, margin)
-    );
+    return clampToIsland(nextX, nextY, margin);
   }
 
   // Icône = fonction(ctx, w, h, rng, accent) qui peint sur un canvas w×h
@@ -736,109 +639,7 @@ window.Game = window.Game || {};
     ctx.globalAlpha = 1;
     ctx.restore();
 
-    // Reliefs : montagnes peintes par-dessus l'herbe (couronne rocheuse
-    // + plateau sommital), une fois pour toutes.
-    MOUNTAINS.forEach((mountain) => drawMountain(ctx, world, mountain));
-
     return canvas;
-  }
-
-  /** Peint une montagne complète : couronne rocheuse (avec strates de
-   * texture) et plateau sommital (avec quelques éclats de roche). */
-  function drawMountain(ctx, world, mountain) {
-    const cx = world.halfWidth + mountain.cx;
-    const cy = world.halfHeight + mountain.cy;
-    const steps = 140;
-    const outerPts = [];
-    const innerPts = [];
-    for (let i = 0; i <= steps; i++) {
-      const angle = (i / steps) * Math.PI * 2;
-      const ro = mountain.radiusFn(angle);
-      const ri = Math.max(12, ro - MOUNTAIN_CLIFF_BAND);
-      outerPts.push([cx + Math.cos(angle) * ro, cy + Math.sin(angle) * ro]);
-      innerPts.push([cx + Math.cos(angle) * ri, cy + Math.sin(angle) * ri]);
-    }
-    const pathFrom = (pts) => {
-      ctx.beginPath();
-      pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
-      ctx.closePath();
-    };
-
-    // Ombre portée douce sous la montagne (léger décalage bas-droite).
-    ctx.save();
-    ctx.translate(10, 14);
-    pathFrom(outerPts);
-    ctx.fillStyle = 'rgba(0,0,0,0.18)';
-    ctx.fill();
-    ctx.restore();
-
-    // Couronne rocheuse (base de la falaise).
-    pathFrom(outerPts);
-    ctx.fillStyle = hex(mountain.rockColor);
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = shade(mountain.rockColor, -0.4);
-    ctx.stroke();
-
-    // Strates de texture sur la couronne, contenues par un clip.
-    ctx.save();
-    pathFrom(outerPts);
-    ctx.clip();
-    ctx.strokeStyle = shade(mountain.rockColor, -0.25);
-    ctx.lineWidth = 2.5;
-    for (let i = 0; i < outerPts.length; i += 2) {
-      const [x1, y1] = outerPts[i];
-      const [x2, y2] = innerPts[i];
-      ctx.beginPath();
-      ctx.moveTo(mix(x1, x2, 0.22), mix(y1, y2, 0.22));
-      ctx.lineTo(mix(x1, x2, 0.5), mix(y1, y2, 0.5));
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(mix(x1, x2, 0.62), mix(y1, y2, 0.62));
-      ctx.lineTo(mix(x1, x2, 0.86), mix(y1, y2, 0.86));
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    // Plateau sommital.
-    pathFrom(innerPts);
-    const capGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(mountain.radiusX, mountain.radiusY));
-    capGrad.addColorStop(0, hex(mountain.capColor));
-    capGrad.addColorStop(1, shade(mountain.capColor, -0.15));
-    ctx.fillStyle = capGrad;
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = shade(mountain.capColor, -0.32);
-    ctx.stroke();
-
-    // Éclats de roche épars sur le plateau, contenus par un clip.
-    ctx.save();
-    pathFrom(innerPts);
-    ctx.clip();
-    const rng = mathUtils.mulberry32(mountain.seed + 5);
-    const speckles = 46;
-    const maxR = Math.max(mountain.radiusX, mountain.radiusY);
-    for (let i = 0; i < speckles; i++) {
-      const a = rng() * Math.PI * 2;
-      const r = rng() * maxR;
-      const px = cx + Math.cos(a) * r * (mountain.radiusX / maxR);
-      const py = cy + Math.sin(a) * r * (mountain.radiusY / maxR);
-      ctx.globalAlpha = 0.08 + rng() * 0.1;
-      ctx.fillStyle = rng() > 0.5 ? '#ffffff' : '#000000';
-      ctx.beginPath();
-      ctx.arc(px, py, 2 + rng() * 4, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-    ctx.restore();
-
-    // Écume rocheuse au pied de la falaise (liseré clair, comme la côte).
-    ctx.save();
-    pathFrom(outerPts);
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
-    ctx.stroke();
-    ctx.restore();
   }
 
   // Zones interdites au décor aléatoire : autour du point d'arrivée, le
@@ -855,45 +656,11 @@ window.Game = window.Game || {};
   }
 
   function buildLandmarkZones() {
-    const zones = WORLD.landmarks.map((l) => {
+    return WORLD.landmarks.map((l) => {
       const size = DECOR_SIZE[l.type] || [60, 60];
       const r = Math.max(size[0], size[1]) * (l.scale || 1) * 0.62;
       return { x: l.x, y: l.y, r };
     });
-    // Le décor aléatoire (arbres, buissons...) ne doit pas être planté par
-    // dessus une montagne : on réserve toute son empreinte (rayon max).
-    MOUNTAINS.forEach((m) => {
-      zones.push({ x: m.cx, y: m.cy, r: Math.max(m.radiusX, m.radiusY) + 20 });
-    });
-    return zones;
-  }
-
-  /** Éparpille quelques éléments de décor (rochers, arbres, fleurs) sur le
-   * plateau sommital d'une montagne, pour qu'il ne reste pas totalement
-   * nu une fois qu'on y a grimpé. */
-  function scatterMountainSummit(mountain) {
-    const rng = mathUtils.mulberry32(mountain.seed + 11);
-    const items = [
-      { type: 'rock', count: 4 },
-      { type: 'tree', count: 3 },
-      { type: 'flower', count: 5 },
-    ];
-    const props = [];
-    items.forEach(({ type, count }) => {
-      const size = DECOR_SIZE[type] || [40, 50];
-      for (let i = 0; i < count; i++) {
-        const angle = rng() * Math.PI * 2;
-        const spread = rng() * 0.7; // reste bien à l'intérieur du plateau
-        const innerR = Math.max(12, mountain.radiusFn(angle) - MOUNTAIN_CLIFF_BAND) * spread;
-        const x = mountain.cx + Math.cos(angle) * innerR;
-        const y = mountain.cy + Math.sin(angle) * innerR;
-        const canvas = buildDecorCanvas(type, rng, WORLD.accentColor);
-        if (!canvas) continue;
-        const scale = 0.85 + rng() * 0.35;
-        props.push({ type, x, y, canvas, worldW: size[0] * scale, worldH: size[1] * scale });
-      }
-    });
-    return props;
   }
 
   /**
@@ -937,10 +704,6 @@ window.Game = window.Game || {};
       if (!canvas) return;
       const scale = l.scale || 1;
       props.push({ type: l.type, x: l.x, y: l.y, canvas, worldW: size[0] * scale, worldH: size[1] * scale });
-    });
-
-    MOUNTAINS.forEach((mountain) => {
-      props.push(...scatterMountainSummit(mountain));
     });
 
     // Tri par profondeur (y croissant) une fois pour toutes : le sol ne
