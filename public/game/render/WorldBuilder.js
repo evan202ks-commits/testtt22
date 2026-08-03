@@ -134,14 +134,12 @@ window.Game = window.Game || {};
   // ------------------------------------------------------------------
   // Reliefs : des "montagnes" posées sur l'île, chacune avec sa propre
   // silhouette irrégulière (mêmes harmoniques sinusoïdales que la côte)
-  // et une couronne rocheuse infranchissable — sauf au niveau d'une ou
-  // plusieurs échelles, seules brèches permettant de monter sur le
-  // plateau sommital. Reprend exactement le principe de l'île
-  // (boundaryRadius/grassRadius + clamp) mais "inversé" : ici la bande
-  // rocheuse bloque le passage au lieu de le contenir.
+  // et une couronne rocheuse totalement infranchissable. Reprend
+  // exactement le principe de l'île (boundaryRadius/grassRadius + clamp)
+  // mais "inversé" : ici la bande rocheuse bloque le passage au lieu de
+  // le contenir.
   // ------------------------------------------------------------------
   const MOUNTAIN_CLIFF_BAND = 46; // largeur (px monde) de la couronne rocheuse infranchissable
-  const LADDER_WIDTH = 42; // largeur (px monde) de la brèche franchissable par l'échelle
 
   function makeMountainRadiusFn(seed, radiusX, radiusY) {
     const rng = mathUtils.mulberry32(seed);
@@ -162,8 +160,9 @@ window.Game = window.Game || {};
     };
   }
 
-  function makeMountain({ id, cx, cy, radiusX, radiusY, ladderAngles, rockColor, capColor }) {
+  function makeMountain({ id, cx, cy, radiusX, radiusY, rockColor, capColor }) {
     const seed = mathUtils.hashString(WORLD_ID + ':' + id);
+    const radiusFn = makeMountainRadiusFn(seed, radiusX, radiusY);
     return {
       id,
       cx,
@@ -173,14 +172,12 @@ window.Game = window.Game || {};
       seed,
       rockColor,
       capColor,
-      radiusFn: makeMountainRadiusFn(seed, radiusX, radiusY),
-      ladders: ladderAngles.map((angle) => ({ angle })),
+      radiusFn,
     };
   }
 
-  // Une montagne principale, franchissable par deux échelles situées de
-  // part et d'autre (l'une côté chemin/campement, l'autre côté opposé,
-  // pour proposer une petite boucle d'exploration).
+  // Une montagne principale, posée sur l'île comme un simple relief
+  // décoratif infranchissable.
   const MOUNTAINS = [
     makeMountain({
       id: 'mont-central',
@@ -188,7 +185,6 @@ window.Game = window.Game || {};
       cy: -110,
       radiusX: 185,
       radiusY: 145,
-      ladderAngles: [0.45, -2.35],
       rockColor: 0x7d7469,
       capColor: 0x9c8f7a,
     }),
@@ -241,9 +237,9 @@ window.Game = window.Game || {};
   /**
    * true si (x, y) tombe dans la couronne rocheuse infranchissable d'une
    * montagne (entre son rayon intérieur = pied du plateau et son rayon
-   * extérieur = base de la falaise), EN DEHORS de toute brèche d'échelle.
-   * Le sommet (dist < rayon intérieur) n'est jamais bloquant : une fois
-   * monté, on marche librement dessus, comme sur l'herbe de l'île.
+   * extérieur = base de la falaise). La montagne est maintenant un
+   * simple relief décoratif : sa couronne est bloquante sur toute sa
+   * circonférence, sans aucune brèche.
    */
   function isInMountainRing(x, y, mountain) {
     const dx = x - mountain.cx;
@@ -253,14 +249,7 @@ window.Game = window.Game || {};
     const outerR = mountain.radiusFn(angle);
     if (dist > outerR) return false; // en dehors de la montagne
     const innerR = Math.max(12, outerR - MOUNTAIN_CLIFF_BAND);
-    if (dist < innerR) return false; // sur le plateau : libre
-
-    for (const ladder of mountain.ladders) {
-      const gapHalfAngle = (LADDER_WIDTH / 2 / Math.max(innerR, 40)) * 1.35;
-      let diff = Math.abs(angle - ladder.angle);
-      if (diff > Math.PI) diff = Math.PI * 2 - diff;
-      if (diff <= gapHalfAngle) return false; // dans la brèche de l'échelle : franchissable
-    }
+    if (dist < innerR) return false; // sur le plateau : libre (inatteignable désormais)
     return true; // roche pleine : bloqué
   }
 
@@ -271,8 +260,8 @@ window.Game = window.Game || {};
   /**
    * Résout un déplacement (prevX, prevY) -> (nextX, nextY) en tenant
    * compte à la fois du contour de l'île (clampToIsland) et des
-   * montagnes (couronnes rocheuses infranchissables, sauf échelles).
-   * Essaie le déplacement complet, puis chaque axe séparément (pour
+   * montagnes (couronnes rocheuses infranchissables). Essaie le
+   * déplacement complet, puis chaque axe séparément (pour
    * "glisser" le long d'un flanc de montagne comme le long d'un mur),
    * et reste sur place si tout est bloqué.
    */
@@ -748,55 +737,14 @@ window.Game = window.Game || {};
     ctx.restore();
 
     // Reliefs : montagnes peintes par-dessus l'herbe (couronne rocheuse
-    // + plateau sommital + échelles), une fois pour toutes.
+    // + plateau sommital), une fois pour toutes.
     MOUNTAINS.forEach((mountain) => drawMountain(ctx, world, mountain));
 
     return canvas;
   }
 
-  /** Dessine une échelle radiale (rails + barreaux) dans la brèche d'une
-   * montagne, du pied de la falaise (rayon extérieur) jusqu'au plateau
-   * (rayon intérieur), orientée le long de l'angle de la brèche. */
-  function drawLadder(ctx, cx, cy, mountain, ladder) {
-    const angle = ladder.angle;
-    const outerR = mountain.radiusFn(angle);
-    const innerR = Math.max(12, outerR - MOUNTAIN_CLIFF_BAND);
-    const length = outerR - innerR + 14;
-    const px = cx + Math.cos(angle) * (innerR + outerR) / 2;
-    const py = cy + Math.sin(angle) * (innerR + outerR) / 2;
-
-    ctx.save();
-    ctx.translate(px, py);
-    ctx.rotate(angle - Math.PI / 2);
-
-    const railColor = '#8a6339';
-    const railGap = LADDER_WIDTH * 0.6;
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = railColor;
-    ctx.lineWidth = 6;
-    [-railGap / 2, railGap / 2].forEach((rx) => {
-      ctx.beginPath();
-      ctx.moveTo(rx, -length / 2);
-      ctx.lineTo(rx, length / 2);
-      ctx.stroke();
-    });
-
-    ctx.strokeStyle = shade(railColor, -0.25);
-    ctx.lineWidth = 5;
-    const rungs = Math.max(3, Math.round(length / 18));
-    for (let i = 0; i <= rungs; i++) {
-      const ly = -length / 2 + (length * i) / rungs;
-      ctx.beginPath();
-      ctx.moveTo(-railGap / 2, ly);
-      ctx.lineTo(railGap / 2, ly);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
   /** Peint une montagne complète : couronne rocheuse (avec strates de
-   * texture), plateau sommital (avec quelques éclats de roche), et une
-   * échelle par brèche pour la rendre franchissable. */
+   * texture) et plateau sommital (avec quelques éclats de roche). */
   function drawMountain(ctx, world, mountain) {
     const cx = world.halfWidth + mountain.cx;
     const cy = world.halfHeight + mountain.cy;
@@ -891,9 +839,6 @@ window.Game = window.Game || {};
     ctx.strokeStyle = 'rgba(255,255,255,0.14)';
     ctx.stroke();
     ctx.restore();
-
-    // Échelles : une par brèche.
-    mountain.ladders.forEach((ladder) => drawLadder(ctx, cx, cy, mountain, ladder));
   }
 
   // Zones interdites au décor aléatoire : autour du point d'arrivée, le

@@ -145,15 +145,17 @@ window.Game.GameEngine = class GameEngine {
     if (!me) return;
 
     const dir = this.input.getDirection();
+    const holdingMove = dir.x !== 0 || dir.y !== 0;
     const prevX = me.x;
     const prevY = me.y;
-    if (dir.x !== 0 || dir.y !== 0) {
+
+    if (holdingMove) {
       const running = this.input.isRunning();
       const speed = running ? this.speedRun : this.speedWalk;
       const nextX = me.x + dir.x * speed * dt;
       const nextY = me.y + dir.y * speed * dt;
       // resolvePlayerMove contraint à la fois au contour de l'île ET aux
-      // montagnes (couronne rocheuse infranchissable, sauf aux échelles).
+      // montagnes (couronne rocheuse infranchissable).
       const clamped = window.Game.WorldBuilder.resolvePlayerMove(me.x, me.y, nextX, nextY, 24);
       me.x = clamped.x;
       me.y = clamped.y;
@@ -161,6 +163,7 @@ window.Game.GameEngine = class GameEngine {
       me.targetY = me.y;
       this.network.sendPosition(me.x, me.y);
     }
+
     me.updateAnimation(dt, me.x - prevX, me.y - prevY);
 
     for (const player of this.players.values()) {
