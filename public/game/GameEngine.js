@@ -152,7 +152,9 @@ window.Game.GameEngine = class GameEngine {
       const speed = running ? this.speedRun : this.speedWalk;
       const nextX = me.x + dir.x * speed * dt;
       const nextY = me.y + dir.y * speed * dt;
-      const clamped = window.Game.WorldBuilder.clampToIsland(nextX, nextY, 24);
+      // resolvePlayerMove contraint à la fois au contour de l'île ET aux
+      // montagnes (couronne rocheuse infranchissable, sauf aux échelles).
+      const clamped = window.Game.WorldBuilder.resolvePlayerMove(me.x, me.y, nextX, nextY, 24);
       me.x = clamped.x;
       me.y = clamped.y;
       me.targetX = me.x;
