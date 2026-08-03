@@ -137,11 +137,8 @@ window.Game = window.Game || {};
       if (!avatar) return;
 
       const t = player.animTime || 0;
-      // speedFactor (~1 en marche, ~1.8 en course, voir game/Player.js)
-      // amplifie et accélère le rebond du sprite pendant la course.
-      const factor = player.isMoving ? (player.speedFactor || 1) : 0;
-      const bobSpeed = player.isMoving ? 7.5 + factor * 3 : 2.4;
-      const bobHeight = player.isMoving ? 2.6 + factor * 2 : 1.2;
+      const bobSpeed = player.isMoving ? 9 : 2.4;
+      const bobHeight = player.isMoving ? 3.5 : 1.2;
       avatar.bobY = Math.abs(Math.sin(t * bobSpeed)) * bobHeight;
 
       const frame = avatar.frame;

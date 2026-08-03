@@ -7,11 +7,6 @@
  * direction normalisé (8 directions : haut/bas/gauche/droite + diagonales).
  * Supporte ZQSD (clavier FR) et les flèches directionnelles.
  *
- * Course : la touche Shift (gauche ou droite) est suivie séparément
- * (isRunning()) et fait passer le personnage en vitesse de course tant
- * qu'elle est maintenue en même temps qu'une direction — voir
- * game/GameEngine.js, qui choisit la vitesse à appliquer à chaque frame.
- *
  * Le module s'active/se désactive explicitement (enable/disable) : quand
  * le mini-jeu est fermé, ou quand le focus est dans un champ texte (ex:
  * le chat), les touches ne doivent pas déplacer le personnage.
@@ -23,7 +18,6 @@ window.Game = window.Game || {};
 window.Game.InputManager = class InputManager {
   constructor() {
     this.pressed = new Set();
-    this.shiftPressed = false;
     this.active = false;
 
     this._onKeyDown = this._onKeyDown.bind(this);
@@ -46,7 +40,6 @@ window.Game.InputManager = class InputManager {
     window.removeEventListener('keyup', this._onKeyUp);
     window.removeEventListener('blur', this._onBlur);
     this.pressed.clear();
-    this.shiftPressed = false;
   }
 
   _isTypingTarget(target) {
@@ -56,10 +49,6 @@ window.Game.InputManager = class InputManager {
 
   _onKeyDown(e) {
     if (this._isTypingTarget(e.target)) return;
-    if (e.key === 'Shift') {
-      this.shiftPressed = true;
-      return;
-    }
     if (MOVE_KEYS.has(e.key)) {
       this.pressed.add(e.key);
       e.preventDefault();
@@ -67,10 +56,6 @@ window.Game.InputManager = class InputManager {
   }
 
   _onKeyUp(e) {
-    if (e.key === 'Shift') {
-      this.shiftPressed = false;
-      return;
-    }
     if (MOVE_KEYS.has(e.key)) {
       this.pressed.delete(e.key);
     }
@@ -78,7 +63,6 @@ window.Game.InputManager = class InputManager {
 
   _onBlur() {
     this.pressed.clear();
-    this.shiftPressed = false;
   }
 
   /**
@@ -101,11 +85,6 @@ window.Game.InputManager = class InputManager {
     }
 
     return { x, y };
-  }
-
-  /** @returns {boolean} vrai tant que Shift est maintenu (course). */
-  isRunning() {
-    return this.shiftPressed;
   }
 };
 

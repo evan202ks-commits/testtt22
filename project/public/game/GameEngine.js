@@ -12,17 +12,8 @@
  *
  * Un seul monde désormais (voir game/render/WorldBuilder.js) : plus de
  * planètes, plus de portails à surveiller. Le déplacement du joueur est
- * contraint à l'intérieur de l'île (voir
- * window.Game.WorldBuilder.clampToIsland, qui suit le contour irrégulier
- * de la côte plutôt qu'un simple rectangle).
- *
- * Course : la touche Shift (voir game/InputManager.js) fait passer le
- * joueur de sa vitesse de marche à sa vitesse de course tant qu'elle est
- * maintenue ET qu'une direction est demandée. Aucun nouveau champ réseau
- * n'est nécessaire : Player.updateAnimation déduit la vitesse réelle du
- * déplacement mesuré (dx, dy / dt) pour accélérer l'animation de marche
- * en conséquence, aussi bien pour le joueur local que pour les joueurs
- * distants (dont on ne connaît que les positions successives).
+ * simplement contraint à l'intérieur d'un rectangle (voir
+ * window.Game.mathUtils.clampToRect).
  * ----------------------------------------------------------------------
  */
 
@@ -44,8 +35,7 @@ window.Game.GameEngine = class GameEngine {
     this.players = new Map();
     this._bubbleEls = new Map();
 
-    this.speedWalk = 165; // unités monde (px) / seconde, marche
-    this.speedRun = 300; // unités monde (px) / seconde, course (Shift)
+    this.speed = 165; // unités monde (px) / seconde
     this.gameTime = 0;
 
     // Paramètre : bulles de chat au-dessus des personnages. Activé par
@@ -148,11 +138,11 @@ window.Game.GameEngine = class GameEngine {
     const prevX = me.x;
     const prevY = me.y;
     if (dir.x !== 0 || dir.y !== 0) {
-      const running = this.input.isRunning();
-      const speed = running ? this.speedRun : this.speedWalk;
-      const nextX = me.x + dir.x * speed * dt;
-      const nextY = me.y + dir.y * speed * dt;
-      const clamped = window.Game.WorldBuilder.clampToIsland(nextX, nextY, 24);
+      const nextX = me.x + dir.x * this.speed * dt;
+      const nextY = me.y + dir.y * this.speed * dt;
+      const clamped = window.Game.mathUtils.clampToRect(
+        nextX, nextY, this.world.halfWidth - 24, this.world.halfHeight - 24
+      );
       me.x = clamped.x;
       me.y = clamped.y;
       me.targetX = me.x;
@@ -234,12 +224,14 @@ window.Game.GameEngine = class GameEngine {
   _spawnPosition(seedId, tight = false) {
     const hash = window.Game.mathUtils.hashString(String(seedId));
     const angle = (hash % 360) * (Math.PI / 180);
-    const dist = tight ? 16 + (hash % 45) : 30 + (hash % 80);
+    const dist = tight ? 20 + (hash % 60) : 60 + (hash % 320);
     const raw = {
       x: this.world.spawn.x + Math.cos(angle) * dist,
       y: this.world.spawn.y + Math.sin(angle) * dist,
     };
-    return window.Game.WorldBuilder.clampToIsland(raw.x, raw.y, 24);
+    return window.Game.mathUtils.clampToRect(
+      raw.x, raw.y, this.world.halfWidth - 24, this.world.halfHeight - 24
+    );
   }
 
   _syncLocalPlayer(session) {

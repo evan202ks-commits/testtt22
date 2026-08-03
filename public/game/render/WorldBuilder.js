@@ -3,14 +3,22 @@
 /**
  * game/render/WorldBuilder.js
  * ----------------------------------------------------------------------
- * Décrit LE monde 2D (un seul, plus de planètes ni de portails) et sait
- * générer son décor de façon entièrement procédurale (aucune texture/
- * asset externe à part le sprite du personnage : tout est peint à la
- * volée sur des <canvas> 2D). Chaque élément de décor (arbre, buisson,
- * rocher, cristal...) est peint une fois sous forme de petite icône
- * (canvas indépendant), puis WorldRenderer.js se contente de le poser
- * (drawImage) à sa position dans le monde à chaque frame — même principe
- * qu'un vieux RPG en pixel art façon "props" plats vus de dessus.
+ * Décrit LE monde 2D — désormais une petite île de départ cosy, cernée
+ * d'eau (falaise + écume + herbe), plutôt qu'une simple prairie
+ * rectangulaire — et sait générer son décor de façon entièrement
+ * procédurale (aucune texture/asset externe à part le sprite du
+ * personnage : tout est peint à la volée sur des <canvas> 2D). Chaque
+ * élément de décor (arbre, buisson, rocher, cabane, ponton...) est peint
+ * une fois sous forme de petite icône (canvas indépendant), puis
+ * WorldRenderer.js se contente de le poser (drawImage) à sa position
+ * dans le monde à chaque frame — même principe qu'un vieux RPG en pixel
+ * art façon "props" plats vus de dessus.
+ *
+ * La forme de l'île est définie par une fonction radius(angle) (ellipse
+ * modulée par quelques harmoniques sinusoïdales, seedée pour être
+ * déterministe) : à la fois pour LA DESSINER (falaise/herbe) et pour
+ * CONTRAINDRE le déplacement du joueur (voir clampToIsland, utilisée par
+ * game/GameEngine.js à la place d'un simple rectangle).
  *
  * Ce module est un pur "atelier de construction" : il ne connaît rien du
  * joueur, du réseau ni de la boucle de jeu. WorldRenderer.js l'utilise
@@ -56,6 +64,10 @@ window.Game = window.Game || {};
     return toHex([r + (target - r) * t, g + (target - g) * t, b + (target - b) * t]);
   }
 
+  function mix(a, b, t) {
+    return a + (b - a) * t;
+  }
+
   function fillPath(ctx, fill, stroke, lw, build) {
     ctx.beginPath();
     build();
@@ -72,29 +84,119 @@ window.Game = window.Game || {};
   }
 
   // ------------------------------------------------------------------
-  // Config du monde. Une seule entrée : plus de biomes à débloquer par
-  // portail, un unique village-prairie cosy où tout le monde se retrouve.
+  // Forme de l'île : ellipse (radiusX, radiusY) modulée par quelques
+  // harmoniques sinusoïdales déterministes (même seed => même côte
+  // "grignotée" à chaque partie, comme sur une vraie petite île).
+  // radius(angle) donne la distance du centre jusqu'à la falaise pour un
+  // angle donné (repère standard : x = cos(angle)*r, y = sin(angle)*r).
+  // ------------------------------------------------------------------
+  function makeIslandRadiusFn(seed, radiusX, radiusY) {
+    const rng = mathUtils.mulberry32(seed);
+    const harmonics = [2, 3, 5, 7].map((freq) => ({
+      freq: freq + (rng() < 0.5 ? 0 : 1),
+      amp: 0.05 + rng() * 0.09,
+      phase: rng() * Math.PI * 2,
+    }));
+    return function islandRadius(angle) {
+      const ellipseR = 1 / Math.sqrt(
+        (Math.cos(angle) / radiusX) ** 2 + (Math.sin(angle) / radiusY) ** 2
+      );
+      let noise = 1;
+      harmonics.forEach((hn) => {
+        noise += hn.amp * Math.sin(hn.freq * angle + hn.phase);
+      });
+      return ellipseR * Math.max(0.72, noise);
+    };
+  }
+
+  function measureBounds(radiusFn, steps = 160) {
+    let maxAbsX = 0;
+    let maxAbsY = 0;
+    for (let i = 0; i < steps; i++) {
+      const angle = (i / steps) * Math.PI * 2;
+      const r = radiusFn(angle);
+      maxAbsX = Math.max(maxAbsX, Math.abs(Math.cos(angle) * r));
+      maxAbsY = Math.max(maxAbsY, Math.abs(Math.sin(angle) * r));
+    }
+    return { maxAbsX, maxAbsY };
+  }
+
+  const WORLD_ID = 'starter-island';
+  const ISLAND_SEED = mathUtils.hashString(WORLD_ID);
+  const RADIUS_X = 760;
+  const RADIUS_Y = 480;
+  const CLIFF_BAND = 58; // largeur (px monde) de la bande de falaise
+  const WATER_MARGIN = 260; // marge d'eau visible au-delà de la côte
+
+  const islandRadiusFn = makeIslandRadiusFn(ISLAND_SEED, RADIUS_X, RADIUS_Y);
+  const bounds = measureBounds(islandRadiusFn);
+
+  // ------------------------------------------------------------------
+  // Config du monde. Une seule entrée : l'île de départ, un petit
+  // campement cosy (cabane, jardin, feu de camp, ponton) où tous les
+  // joueurs se retrouvent.
   // ------------------------------------------------------------------
   const WORLD = {
-    id: 'world',
-    name: 'Constellation',
-    subtitle: 'Prairie commune',
-    halfWidth: 900,
-    halfHeight: 620,
+    id: WORLD_ID,
+    name: 'Île de départ',
+    subtitle: 'Premier campement',
+    halfWidth: bounds.maxAbsX + WATER_MARGIN,
+    halfHeight: bounds.maxAbsY + WATER_MARGIN,
     groundColor: 0x8fcf7a,
     groundColor2: 0x74b862,
+    cliffColor: 0x8a5a34,
+    waterColor: 0x2f7fbf,
+    waterColor2: 0x0f3f66,
     accentColor: 0xffd76a,
+    // Point d'arrivée : sur le chemin, entre le ponton (au sud) et la
+    // cabane (au nord), comme un joueur qui vient de débarquer.
+    spawn: { x: 0, y: 300 },
+    boundaryRadius: islandRadiusFn,
+    grassRadius(angle) {
+      return islandRadiusFn(angle) - CLIFF_BAND;
+    },
     decor: [
-      { type: 'tree', count: 24 },
-      { type: 'bush', count: 16 },
-      { type: 'rock', count: 12 },
-      { type: 'mushroom', count: 10 },
-      { type: 'lamp', count: 8 },
-      { type: 'crystalBush', count: 8 },
-      { type: 'cactus', count: 5 },
+      { type: 'tree', count: 16 },
+      { type: 'appleTree', count: 5 },
+      { type: 'bush', count: 14 },
+      { type: 'rock', count: 9 },
+      { type: 'flower', count: 26 },
+      { type: 'mushroom', count: 6 },
+      { type: 'stump', count: 3 },
     ],
-    spawn: { x: 0, y: 0 },
+    // Éléments fixes (mise en scène façon "campement cosy") : positions
+    // choisies à la main plutôt que tirées au sort, pour composer une
+    // scène lisible (cabane au nord, jardin à sa droite, feu de camp,
+    // ponton + barque au sud...).
+    landmarks: [
+      { type: 'cabin', x: -10, y: -200 },
+      { type: 'barrel', x: -150, y: -110 },
+      { type: 'barrel', x: 150, y: -130 },
+      { type: 'gardenPatch', x: 290, y: -110 },
+      { type: 'campfire', x: 220, y: 95 },
+      { type: 'signpost', x: -170, y: 60 },
+      { type: 'stump', x: -350, y: -30 },
+      { type: 'lamp', x: -78, y: 165, scale: 0.9 },
+      { type: 'lamp', x: 78, y: 165, scale: 0.9 },
+      { type: 'dock', x: 0, y: 470 },
+      { type: 'boat', x: 115, y: 500 },
+    ],
   };
+
+  /**
+   * Contraint un point (x, y) à l'intérieur du tapis d'herbe de l'île
+   * (jamais sur la falaise ni dans l'eau). Remplace l'ancien
+   * clampToRect : la limite dépend de l'angle (côte irrégulière), pas
+   * d'un simple rectangle.
+   */
+  function clampToIsland(x, y, margin = 0) {
+    const angle = Math.atan2(y, x);
+    const maxR = WORLD.grassRadius(angle) - margin;
+    const dist = Math.hypot(x, y);
+    if (maxR <= 0 || dist <= maxR) return { x, y };
+    const scale = maxR / dist;
+    return { x: x * scale, y: y * scale };
+  }
 
   // Icône = fonction(ctx, w, h, rng, accent) qui peint sur un canvas w×h
   // (origine en haut à gauche, base de l'objet posée près de y=h-6).
@@ -118,6 +220,24 @@ window.Game = window.Game || {};
         });
       }
     },
+    appleTree(ctx, w, h, rng) {
+      ICONS.tree(ctx, w, h, rng);
+      const cx = w / 2;
+      const trunkH = h * 0.28;
+      const topY = h - 6 - trunkH;
+      const appleColors = ['#e2542f', '#f2712f'];
+      for (let i = 0; i < 6; i++) {
+        const tier = Math.floor(rng() * 3);
+        const cy = topY - tier * (h * 0.19) + (rng() - 0.5) * h * 0.08;
+        const r = w * 0.42 - tier * w * 0.09;
+        const a = rng() * Math.PI * 2;
+        const px = cx + Math.cos(a) * r * 0.7;
+        const py = cy + Math.sin(a) * r * 0.45;
+        fillPath(ctx, appleColors[i % 2], 'rgba(0,0,0,0.3)', 1.5, () => {
+          ctx.arc(px, py, w * 0.045, 0, Math.PI * 2);
+        });
+      }
+    },
     bush(ctx, w, h, rng, accent, color = '#6fae5a') {
       const cx = w / 2, base = h - 6;
       const clumps = 4;
@@ -129,24 +249,6 @@ window.Game = window.Game || {};
           ctx.arc(px, py, s, 0, Math.PI * 2);
         });
       }
-    },
-    cactus(ctx, w, h, rng) {
-      const cx = w / 2;
-      const bodyW = w * 0.3;
-      const bodyH = h * 0.62;
-      const baseY = h - 6;
-      const color = '#4f9a5c';
-      const drawArm = (side) => {
-        const armY = baseY - bodyH * (0.45 + rng() * 0.2);
-        fillPath(ctx, color, 'rgba(0,0,0,0.3)', 4, () => {
-          ctx.roundRect(cx + side * bodyW * 1.05, armY - bodyH * 0.32, bodyW * 0.6, bodyH * 0.32, bodyW * 0.3);
-        });
-      };
-      if (rng() > 0.4) drawArm(1);
-      if (rng() > 0.6) drawArm(-1);
-      fillPath(ctx, color, shade(color, -0.3), 4, () => {
-        ctx.roundRect(cx - bodyW / 2, baseY - bodyH, bodyW, bodyH, bodyW * 0.45);
-      });
     },
     rock(ctx, w, h, rng) {
       const cx = w / 2, base = h - 6;
@@ -183,27 +285,183 @@ window.Game = window.Game || {};
         ctx.fill();
       });
     },
-    crystalBush(ctx, w, h, rng, accent) {
-      const cx = w / 2, base = h - 6;
-      const color = hex(accent || 0xc9a6ff);
-      const glow = ctx.createRadialGradient(cx, base - h * 0.25, 0, cx, base - h * 0.25, w * 0.55);
-      glow.addColorStop(0, 'rgba(255,255,255,0.35)');
-      glow.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = glow;
+    flower(ctx, w, h, rng) {
+      const cx = w / 2, base = h - 4;
+      const stemH = h * 0.5;
+      ctx.strokeStyle = '#4f8a44';
+      ctx.lineWidth = Math.max(2, w * 0.05);
       ctx.beginPath();
-      ctx.arc(cx, base - h * 0.25, w * 0.55, 0, Math.PI * 2);
-      ctx.fill();
-      const shards = 4;
-      for (let i = 0; i < shards; i++) {
-        const sh = h * (0.3 + rng() * 0.35);
-        const sw = w * 0.12;
-        const px = cx + (rng() - 0.5) * w * 0.55;
-        fillPath(ctx, shade(color, (rng() - 0.5) * 0.2), 'rgba(0,0,0,0.25)', 3, () => {
-          ctx.moveTo(px, base - sh);
-          ctx.lineTo(px - sw, base);
-          ctx.lineTo(px + sw, base);
+      ctx.moveTo(cx, base);
+      ctx.lineTo(cx, base - stemH);
+      ctx.stroke();
+      const palette = ['#ffffff', '#ffd76a', '#ff9ec4', '#ffb347'];
+      const color = palette[Math.floor(rng() * palette.length)];
+      const petalR = w * 0.24;
+      const petals = 5;
+      for (let i = 0; i < petals; i++) {
+        const a = (i / petals) * Math.PI * 2;
+        const px = cx + Math.cos(a) * petalR * 0.9;
+        const py = base - stemH + Math.sin(a) * petalR * 0.9;
+        fillPath(ctx, color, 'rgba(0,0,0,0.2)', 1.5, () => {
+          ctx.arc(px, py, petalR * 0.55, 0, Math.PI * 2);
         });
       }
+      fillPath(ctx, '#ffd76a', null, 0, () => {
+        ctx.arc(cx, base - stemH, petalR * 0.4, 0, Math.PI * 2);
+      });
+    },
+    stump(ctx, w, h, rng) {
+      const cx = w / 2, base = h - 6;
+      const rw = w * 0.36, rh = h * 0.22;
+      fillPath(ctx, '#8a6339', shade('#8a6339', -0.35), 3, () => {
+        ctx.rect(cx - rw, base - rh * 1.6, rw * 2, rh * 1.6);
+      });
+      fillPath(ctx, '#c99a63', shade('#c99a63', -0.2), 3, () => {
+        ctx.ellipse(cx, base - rh * 1.6, rw, rh, 0, 0, Math.PI * 2);
+      });
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 2;
+      for (let r = rw * 0.25; r < rw; r += rw * 0.28) {
+        ctx.beginPath();
+        ctx.ellipse(cx, base - rh * 1.6, r, r * (rh / rw), 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    },
+    barrel(ctx, w, h, rng) {
+      const cx = w / 2, base = h - 6;
+      const bw = w * 0.5, bh = h * 0.6;
+      fillPath(ctx, '#a9743f', shade('#a9743f', -0.3), 3, () => {
+        ctx.roundRect(cx - bw / 2, base - bh, bw, bh, bw * 0.18);
+      });
+      ctx.strokeStyle = shade('#a9743f', -0.5);
+      ctx.lineWidth = Math.max(2, w * 0.045);
+      [0.22, 0.5, 0.78].forEach((f) => {
+        ctx.beginPath();
+        ctx.moveTo(cx - bw / 2, base - bh * f);
+        ctx.lineTo(cx + bw / 2, base - bh * f);
+        ctx.stroke();
+      });
+    },
+    signpost(ctx, w, h, rng) {
+      const cx = w / 2, base = h - 6;
+      const postH = h * 0.7;
+      fillPath(ctx, '#7a5232', shade('#7a5232', -0.3), 3, () => {
+        ctx.rect(cx - w * 0.045, base - postH, w * 0.09, postH);
+      });
+      const signW = w * 0.62, signH = h * 0.16;
+      [0, 1].forEach((i) => {
+        const sy = base - postH * 0.85 + i * signH * 1.4;
+        const dir = i === 0 ? 1 : -1;
+        fillPath(ctx, '#c99a63', shade('#c99a63', -0.3), 3, () => {
+          ctx.moveTo(cx, sy);
+          ctx.lineTo(cx + dir * signW, sy - signH * 0.15);
+          ctx.lineTo(cx + dir * signW, sy + signH);
+          ctx.lineTo(cx, sy + signH * 0.85);
+        });
+      });
+    },
+    campfire(ctx, w, h, rng) {
+      const cx = w / 2, base = h - 6;
+      const stones = 8;
+      for (let i = 0; i < stones; i++) {
+        const a = (i / stones) * Math.PI * 2;
+        const px = cx + Math.cos(a) * w * 0.36;
+        const py = base - h * 0.06 + Math.sin(a) * h * 0.09;
+        fillPath(ctx, '#9a9aa0', 'rgba(0,0,0,0.3)', 2, () => {
+          ctx.arc(px, py, w * 0.06, 0, Math.PI * 2);
+        });
+      }
+      [-0.35, 0.35].forEach((rot) => {
+        ctx.save();
+        ctx.translate(cx, base - h * 0.1);
+        ctx.rotate(rot);
+        fillPath(ctx, '#7a5232', shade('#7a5232', -0.3), 2, () => {
+          ctx.roundRect(-w * 0.28, -w * 0.045, w * 0.56, w * 0.09, w * 0.04);
+        });
+        ctx.restore();
+      });
+      const glow = ctx.createRadialGradient(cx, base - h * 0.22, 0, cx, base - h * 0.22, w * 0.6);
+      glow.addColorStop(0, 'rgba(255,190,90,0.55)');
+      glow.addColorStop(1, 'rgba(255,190,90,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(cx, base - h * 0.22, w * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+      const flameGrad = ctx.createLinearGradient(0, base, 0, base - h * 0.4);
+      flameGrad.addColorStop(0, '#ff5a2e');
+      flameGrad.addColorStop(0.6, '#ffb23e');
+      flameGrad.addColorStop(1, '#fff3b0');
+      fillPath(ctx, flameGrad, null, 0, () => {
+        ctx.moveTo(cx, base - h * 0.02);
+        ctx.quadraticCurveTo(cx - w * 0.16, base - h * 0.2, cx - w * 0.05, base - h * 0.32);
+        ctx.quadraticCurveTo(cx, base - h * 0.26, cx + w * 0.03, base - h * 0.38);
+        ctx.quadraticCurveTo(cx + w * 0.1, base - h * 0.22, cx + w * 0.16, base - h * 0.2);
+        ctx.quadraticCurveTo(cx + w * 0.06, base - h * 0.14, cx, base - h * 0.02);
+      });
+    },
+    gardenPatch(ctx, w, h, rng) {
+      const left = w * 0.06, top = h * 0.1, gw = w * 0.88, gh = h * 0.7;
+      fillPath(ctx, '#6b4a30', shade('#6b4a30', -0.25), 3, () => {
+        ctx.rect(left, top, gw, gh);
+      });
+      const rows = 4, plants = 6;
+      for (let r = 0; r < rows; r++) {
+        const ry = top + gh * ((r + 0.5) / rows);
+        for (let p = 0; p < plants; p++) {
+          const px = left + gw * ((p + 0.5) / plants);
+          fillPath(ctx, '#5f9a4c', shade('#5f9a4c', -0.2), 1.5, () => {
+            ctx.arc(px, ry, gw * 0.028, 0, Math.PI * 2);
+          });
+        }
+      }
+      ctx.strokeStyle = '#8a6339';
+      ctx.lineWidth = Math.max(3, w * 0.02);
+      ctx.strokeRect(left, top, gw, gh);
+      const postGap = gw / 7;
+      for (let i = 0; i <= 7; i++) {
+        const px = left + i * postGap;
+        fillPath(ctx, '#7a5232', null, 0, () => {
+          ctx.rect(px - w * 0.012, top - h * 0.03, w * 0.024, h * 0.06);
+        });
+      }
+    },
+    dock(ctx, w, h, rng) {
+      const cx = w / 2;
+      const plankW = w * 0.78;
+      const top = h * 0.04, bottom = h * 0.96;
+      fillPath(ctx, '#a9743f', shade('#a9743f', -0.3), 3, () => {
+        ctx.rect(cx - plankW / 2, top, plankW, bottom - top);
+      });
+      ctx.strokeStyle = shade('#a9743f', -0.45);
+      ctx.lineWidth = Math.max(2, w * 0.03);
+      const planks = 8;
+      for (let i = 1; i < planks; i++) {
+        const py = top + (bottom - top) * (i / planks);
+        ctx.beginPath();
+        ctx.moveTo(cx - plankW / 2, py);
+        ctx.lineTo(cx + plankW / 2, py);
+        ctx.stroke();
+      }
+      [-1, 1].forEach((side) => {
+        for (let f = 0.08; f < 0.98; f += 0.32) {
+          const py = top + (bottom - top) * f;
+          fillPath(ctx, '#7a5232', shade('#7a5232', -0.3), 2, () => {
+            ctx.rect(cx + side * plankW / 2 - w * 0.02, py, w * 0.045, h * 0.09);
+          });
+        }
+      });
+    },
+    boat(ctx, w, h, rng) {
+      const cx = w / 2, cy = h * 0.55;
+      fillPath(ctx, '#8a5a34', shade('#8a5a34', -0.35), 3, () => {
+        ctx.ellipse(cx, cy, w * 0.42, h * 0.32, 0, 0, Math.PI * 2);
+      });
+      fillPath(ctx, '#c99a63', shade('#c99a63', -0.2), 2, () => {
+        ctx.ellipse(cx, cy, w * 0.3, h * 0.2, 0, 0, Math.PI * 2);
+      });
+      fillPath(ctx, '#6b4a30', null, 0, () => {
+        ctx.rect(cx - w * 0.03, cy - h * 0.05, w * 0.06, h * 0.05);
+      });
     },
     lamp(ctx, w, h, rng, accent) {
       const cx = w / 2, base = h - 6;
@@ -223,48 +481,168 @@ window.Game = window.Game || {};
         ctx.arc(cx, base - postH, w * 0.16, 0, Math.PI * 2);
       });
     },
+    cabin(ctx, w, h, rng) {
+      const cx = w / 2, base = h - 6;
+      const wallW = w * 0.62, wallH = h * 0.36;
+      const wallTop = base - wallH;
+      fillPath(ctx, '#a9743f', shade('#a9743f', -0.35), 4, () => {
+        ctx.rect(cx - wallW / 2, wallTop, wallW, wallH);
+      });
+      const doorW = wallW * 0.22, doorH = wallH * 0.62;
+      fillPath(ctx, '#3f7a4a', shade('#3f7a4a', -0.35), 3, () => {
+        ctx.roundRect(cx - doorW / 2, base - doorH, doorW, doorH, doorW * 0.25);
+      });
+      [-1, 1].forEach((side) => {
+        fillPath(ctx, '#bfe6f2', shade('#bfe6f2', -0.3), 3, () => {
+          ctx.rect(cx + side * wallW * 0.3 - wallW * 0.08, wallTop + wallH * 0.28, wallW * 0.16, wallW * 0.16);
+        });
+      });
+      const roofW = wallW * 1.18, roofH = h * 0.34;
+      fillPath(ctx, '#4f8a5c', shade('#4f8a5c', -0.4), 4, () => {
+        ctx.moveTo(cx, wallTop - roofH);
+        ctx.lineTo(cx - roofW / 2, wallTop + roofH * 0.12);
+        ctx.lineTo(cx + roofW / 2, wallTop + roofH * 0.12);
+      });
+      const chimW = wallW * 0.08;
+      fillPath(ctx, '#8a6339', shade('#8a6339', -0.3), 2, () => {
+        ctx.rect(cx + roofW * 0.22, wallTop - roofH * 0.55, chimW, roofH * 0.7);
+      });
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      [0, 1, 2].forEach((i) => {
+        ctx.beginPath();
+        ctx.arc(cx + roofW * 0.22 + chimW / 2 + i * 3, wallTop - roofH * 0.55 - 10 - i * 14, 6 + i * 2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    },
   };
 
   // Taille "monde" (largeur, hauteur) en pixels de chaque type de décor.
   const DECOR_SIZE = {
-    tree: [96, 152], bush: [44, 36], cactus: [48, 72],
-    rock: [36, 24], mushroom: [27, 32], crystalBush: [44, 52], lamp: [29, 72],
+    tree: [96, 152], appleTree: [96, 152], bush: [44, 36],
+    rock: [36, 24], mushroom: [27, 32], flower: [22, 34], stump: [46, 30],
+    barrel: [30, 40], signpost: [46, 92], campfire: [76, 56],
+    gardenPatch: [200, 150], dock: [90, 260], boat: [70, 50],
+    lamp: [29, 72], cabin: [230, 260],
   };
 
-  const CANVAS_W = 160;
-  const CANVAS_H = 220;
+  // Résolution du canvas de dessin de chaque icône = sa taille "monde"
+  // multipliée par ce facteur (netteté), avec le même ratio largeur/
+  // hauteur que le type concerné (évite l'écrasement d'un asset large et
+  // bas, comme le ponton, dans un canvas pensé pour un objet haut et
+  // étroit, comme un arbre).
+  const ICON_RES_SCALE = 2.4;
 
   function buildDecorCanvas(type, rng, accentColor) {
     const draw = ICONS[type];
     if (!draw) return null;
+    const size = DECOR_SIZE[type] || [40, 50];
+    const w = Math.max(8, Math.round(size[0] * ICON_RES_SCALE));
+    const h = Math.max(8, Math.round(size[1] * ICON_RES_SCALE));
     const canvas = document.createElement('canvas');
-    canvas.width = CANVAS_W;
-    canvas.height = CANVAS_H;
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext('2d');
-    draw(ctx, CANVAS_W, CANVAS_H, rng, accentColor);
+    draw(ctx, w, h, rng, accentColor);
     return canvas;
   }
 
   // ------------------------------------------------------------------
-  // Sol : un grand rectangle peint une seule fois sur un canvas (dégradé
-  // + petites variations picturales), posé tel quel par WorldRenderer.
+  // Sol : eau tout autour + île (falaise + écume + herbe), peint une
+  // seule fois sur un grand canvas, posé tel quel par WorldRenderer.
   // ------------------------------------------------------------------
   function buildGroundCanvas(world) {
     const w = world.halfWidth * 2;
     const h = world.halfHeight * 2;
+    const cx = world.halfWidth;
+    const cy = world.halfHeight;
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
 
-    const grad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
-    grad.addColorStop(0, hex(world.groundColor));
-    grad.addColorStop(1, hex(world.groundColor2));
-    ctx.fillStyle = grad;
+    // Eau (fond), dégradé profond -> clair vers l'île.
+    const waterGrad = ctx.createRadialGradient(cx, cy, Math.min(w, h) * 0.18, cx, cy, Math.max(w, h) * 0.72);
+    waterGrad.addColorStop(0, hex(world.waterColor));
+    waterGrad.addColorStop(1, hex(world.waterColor2));
+    ctx.fillStyle = waterGrad;
     ctx.fillRect(0, 0, w, h);
 
-    // Tapis d'herbe peint à la main (pas une texture répétée) : quelques
-    // taches plus claires/sombres, réparties de façon déterministe.
+    // Petits reflets sur l'eau (traits clairs épars, purement décoratifs).
+    const wrng = mathUtils.mulberry32(mathUtils.hashString(world.id) + 7);
+    ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+    for (let i = 0; i < 70; i++) {
+      const px = wrng() * w, py = wrng() * h, len = 14 + wrng() * 26;
+      ctx.lineWidth = 1 + wrng() * 1.5;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + len, py);
+      ctx.stroke();
+    }
+
+    // Contours de la côte (falaise) et de l'herbe, échantillonnés une
+    // fois pour toutes (mêmes points réutilisés pour le dessin ET pour
+    // la bande de texture de la falaise).
+    const steps = 160;
+    const cliffPts = [];
+    const grassPts = [];
+    for (let i = 0; i <= steps; i++) {
+      const angle = (i / steps) * Math.PI * 2;
+      const rc = world.boundaryRadius(angle);
+      const rg = world.grassRadius(angle);
+      cliffPts.push([cx + Math.cos(angle) * rc, cy + Math.sin(angle) * rc]);
+      grassPts.push([cx + Math.cos(angle) * rg, cy + Math.sin(angle) * rg]);
+    }
+    const pathFrom = (pts) => {
+      ctx.beginPath();
+      pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
+      ctx.closePath();
+    };
+
+    // Écume : liseré blanc translucide tout le long de la côte.
+    pathFrom(cliffPts);
+    ctx.save();
+    ctx.lineWidth = 16;
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.stroke();
+    ctx.restore();
+
+    // Falaise (terre).
+    pathFrom(cliffPts);
+    ctx.fillStyle = hex(world.cliffColor);
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = shade(world.cliffColor, -0.35);
+    ctx.stroke();
+
+    // Petites strates sur la bande de falaise (texture "terrasses").
+    ctx.save();
+    pathFrom(cliffPts);
+    ctx.clip();
+    ctx.strokeStyle = shade(world.cliffColor, -0.22);
+    ctx.lineWidth = 3;
+    for (let i = 0; i < cliffPts.length; i += 3) {
+      const [x1, y1] = cliffPts[i];
+      const [x2, y2] = grassPts[i];
+      ctx.beginPath();
+      ctx.moveTo(mix(x1, x2, 0.3), mix(y1, y2, 0.3));
+      ctx.lineTo(mix(x1, x2, 0.55), mix(y1, y2, 0.55));
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Herbe (sommet de l'île).
+    pathFrom(grassPts);
+    const grassGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(world.halfWidth, world.halfHeight));
+    grassGrad.addColorStop(0, hex(world.groundColor));
+    grassGrad.addColorStop(1, hex(world.groundColor2));
+    ctx.fillStyle = grassGrad;
+    ctx.fill();
+
+    // Tapis d'herbe peint à la main (pas une texture répétée), contenu
+    // strictement dans l'île grâce au clip.
+    ctx.save();
+    pathFrom(grassPts);
+    ctx.clip();
     const rng = mathUtils.mulberry32(mathUtils.hashString(world.id));
     const spots = Math.round((w * h) / 4200);
     for (let i = 0; i < spots; i++) {
@@ -275,41 +653,73 @@ window.Game = window.Game || {};
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+    ctx.restore();
 
     return canvas;
   }
 
+  // Zones interdites au décor aléatoire : autour du point d'arrivée, le
+  // long du chemin central, et autour de chaque élément fixe (pour ne
+  // pas planter un arbre en plein milieu de la cabane).
+  function isBlocked(x, y, landmarkZones) {
+    const distToSpawn = Math.hypot(x - WORLD.spawn.x, y - WORLD.spawn.y);
+    if (distToSpawn < 130) return true;
+    if (Math.abs(x) < 85 && y > -240 && y < 500) return true; // chemin cabane <-> ponton
+    for (const zone of landmarkZones) {
+      if (Math.hypot(x - zone.x, y - zone.y) < zone.r) return true;
+    }
+    return false;
+  }
+
+  function buildLandmarkZones() {
+    return WORLD.landmarks.map((l) => {
+      const size = DECOR_SIZE[l.type] || [60, 60];
+      const r = Math.max(size[0], size[1]) * (l.scale || 1) * 0.62;
+      return { x: l.x, y: l.y, r };
+    });
+  }
+
   /**
    * Construit le décor complet du monde : sol (canvas déjà peint) et
-   * liste de props (arbres, buissons...) placés de façon déterministe
-   * (même seed => même disposition à chaque chargement).
+   * liste de props (arbres, buissons, cabane, ponton...) placés de façon
+   * déterministe (même seed => même disposition à chaque chargement).
    */
   function buildWorld() {
     const ground = buildGroundCanvas(WORLD);
     const rng = mathUtils.mulberry32(mathUtils.hashString(WORLD.id) + 1);
-    const clearRadius = 130; // zone de spawn dégagée au centre
+    const landmarkZones = buildLandmarkZones();
     const props = [];
 
     WORLD.decor.forEach(({ type, count }) => {
       const size = DECOR_SIZE[type] || [40, 50];
       for (let i = 0; i < count; i++) {
-        let x, y;
-        do {
-          x = (rng() * 2 - 1) * WORLD.halfWidth * 0.92;
-          y = (rng() * 2 - 1) * WORLD.halfHeight * 0.92;
-        } while (Math.hypot(x, y) < clearRadius);
+        let x = 0, y = 0, tries = 0, placed = false;
+        while (tries < 30) {
+          const angle = rng() * Math.PI * 2;
+          const spread = 0.32 + rng() * 0.62;
+          const maxR = Math.max(0, WORLD.grassRadius(angle) - 34);
+          x = Math.cos(angle) * maxR * spread;
+          y = Math.sin(angle) * maxR * spread;
+          tries++;
+          if (!isBlocked(x, y, landmarkZones)) {
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) continue;
         const canvas = buildDecorCanvas(type, rng, WORLD.accentColor);
         if (!canvas) continue;
         const scale = 0.85 + rng() * 0.4;
-        props.push({
-          type,
-          x,
-          y,
-          canvas,
-          worldW: size[0] * scale,
-          worldH: size[1] * scale,
-        });
+        props.push({ type, x, y, canvas, worldW: size[0] * scale, worldH: size[1] * scale });
       }
+    });
+
+    WORLD.landmarks.forEach((l) => {
+      const size = DECOR_SIZE[l.type] || [60, 60];
+      const canvas = buildDecorCanvas(l.type, rng, WORLD.accentColor);
+      if (!canvas) return;
+      const scale = l.scale || 1;
+      props.push({ type: l.type, x: l.x, y: l.y, canvas, worldW: size[0] * scale, worldH: size[1] * scale });
     });
 
     // Tri par profondeur (y croissant) une fois pour toutes : le sol ne
@@ -319,5 +729,5 @@ window.Game = window.Game || {};
     return { world: WORLD, ground, props };
   }
 
-  window.Game.WorldBuilder = { WORLD, buildWorld };
+  window.Game.WorldBuilder = { WORLD, buildWorld, clampToIsland };
 })();

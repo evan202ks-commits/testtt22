@@ -9,25 +9,10 @@
  * entité de données pure, mise à jour par GameEngine et lue par
  * game/render/WorldRenderer.js pour l'affichage 2D (sprite orienté selon
  * la direction de marche).
- *
- * Course : aucun champ réseau dédié n'est nécessaire. updateAnimation
- * mesure la vitesse réelle du déplacement (dx, dy sur ce pas de temps) et
- * la compare à la vitesse de marche de référence pour en déduire
- * `speedFactor` (~1 en marche, ~1.8 en course) : plus ce facteur est
- * grand, plus le cycle de marche avance vite. Ça marche aussi bien pour
- * le joueur local (déplacement direct) que pour les joueurs distants
- * (dont on ne connaît que les positions successives reçues par le
- * réseau) : un joueur qui court franchit plus de distance par seconde,
- * donc son animTime avance plus vite, sans rien transporter en plus.
  * ----------------------------------------------------------------------
  */
 
 window.Game = window.Game || {};
-
-// Vitesse de marche de référence (voir game/GameEngine.js : speedWalk).
-// Sert uniquement à convertir une vitesse mesurée en facteur d'animation
-// relatif ; ce n'est pas ce module qui déplace le joueur.
-const WALK_REFERENCE_SPEED = 165;
 
 window.Game.Player = class Player {
   constructor({ id, username, x = 0, y = 0, color, isLocal = false }) {
@@ -54,10 +39,6 @@ window.Game.Player = class Player {
     this.facingAngle = 0;
     this.isMoving = false;
     this.animTime = 0;
-    // Facteur de vitesse courant (0 = immobile, ~1 = marche, ~1.8 = course).
-    // Lu par game/render/WorldRenderer.js pour accélérer/amplifier le
-    // rebond du sprite quand le joueur court.
-    this.speedFactor = 0;
 
     // Bulle de chat au-dessus de la tête : dernier message envoyé par ce
     // joueur, affiché temporairement puis effacé tout seul (voir
@@ -103,19 +84,14 @@ window.Game.Player = class Player {
    * renderer qui décide comment l'afficher (choix de la ligne de sprite).
    */
   updateAnimation(dt, worldDX, worldDY) {
-    const moveDist = Math.hypot(worldDX, worldDY);
+    const moveDistSq = worldDX * worldDX + worldDY * worldDY;
     const threshold = 0.02;
-    this.isMoving = moveDist > threshold;
+    this.isMoving = moveDistSq > threshold * threshold;
 
     if (this.isMoving) {
       this.facingAngle = Math.atan2(worldDX, worldDY);
-      const measuredSpeed = dt > 0 ? moveDist / dt : 0;
-      this.speedFactor = window.Game.mathUtils.clamp(
-        measuredSpeed / WALK_REFERENCE_SPEED, 0.6, 2.2
-      );
-      this.animTime += dt * this.speedFactor;
+      this.animTime += dt;
     } else {
-      this.speedFactor = 0;
       this.animTime += dt * 0.5; // continue doucement pour l'animation idle
     }
   }
