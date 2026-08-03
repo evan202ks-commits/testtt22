@@ -74,8 +74,9 @@ window.Game.mathUtils = (function () {
   }
 
   // Contraint un point (x, y) à l'intérieur d'un disque de rayon `radius`
-  // centré sur l'origine. Sert de zone de collision pour chaque zone du
-  // monde (voir game/render/WorldBuilder.js), quel que soit son rayon.
+  // centré sur l'origine. Sert de zone de collision pour chaque planète
+  // (voir game/render/PlanetBuilder.js) — même principe que l'ancien
+  // clampToIsland, généralisé pour un rayon variable par biome.
   function clampToDisc(x, y, radius) {
     const dist = Math.sqrt(x * x + y * y);
     if (dist <= radius || dist === 0) return { x, y };
@@ -83,32 +84,23 @@ window.Game.mathUtils = (function () {
     return { x: x * scale, y: y * scale };
   }
 
-  // Relief doux (collines/variations de terrain), par superposition de
-  // deux ondes à fréquences différentes — un bruit bon marché mais stable
-  // et sans dépendance, suffisant pour un terrain "vallonné" cosy (pas
-  // besoin d'un vrai Perlin noise ici).
-  function terrainHeight(x, y, seed = 0) {
-    const n1 = Math.sin((x + seed * 13) * 0.02) * Math.cos((y - seed * 7) * 0.023);
-    const n2 = Math.sin((x - seed * 5) * 0.05 + 1.3) * Math.cos((y + seed * 11) * 0.047 + 0.6);
-    return n1 * 6.5 + n2 * 2.4;
-  }
-
-  // Hauteur de sol pour une zone circulaire de rayon `radius` : relief
-  // doux au centre, qui s'aplatit progressivement vers le bord (pour que
-  // portails/décor de bordure restent bien ancrés). Une seule formule,
-  // utilisée pour construire le sol (voir game/render/WorldBuilder.js),
-  // placer décor/portails, et positionner avatar + caméra à la bonne
-  // hauteur — tout reste visuellement aligné sur la même zone.
-  function zoneGroundHeight(x, y, radius, seed = 0) {
+  // Hauteur (relief) d'une planète en forme de dôme sphérique : 0 au
+  // bord (r = radius), point culminant au centre (r = 0). Une seule
+  // formule, utilisée à la fois pour construire le sol (voir
+  // game/render/PlanetBuilder.js), placer décor/portails, et positionner
+  // les avatars + la caméra à la bonne hauteur — pour que tout reste
+  // visuellement aligné sur la même planète "ronde".
+  function domeHeight(r, radius, bulgeFactor = 1.6) {
     if (!radius || radius <= 0) return 0;
-    const r = Math.sqrt(x * x + y * y);
-    const t = Math.min(1, r / radius);
-    const falloff = Math.max(0, 1 - t * t * 0.75);
-    return terrainHeight(x, y, seed) * falloff;
+    const rs = radius * bulgeFactor;
+    const rr = Math.min(Math.abs(r), radius);
+    const top = Math.sqrt(Math.max(0, rs * rs - rr * rr));
+    const edge = Math.sqrt(Math.max(0, rs * rs - radius * radius));
+    return top - edge;
   }
 
   return {
     clamp, lerp, smoothTo, hashString, colorForUserId,
-    mulberry32, hash2D, rand2D, clampToDisc, terrainHeight, zoneGroundHeight,
+    mulberry32, hash2D, rand2D, clampToDisc, domeHeight,
   };
 })();

@@ -127,6 +127,15 @@ class PlanetRenderer {
     this._camLookAt = new THREE.Vector3(0, 6, 0);
     this._cameraOffset = new THREE.Vector3(26, 46, 52);
 
+    // Vecteurs "écran" déduits une fois pour toutes de cet offset fixe
+    // (la caméra suiveuse ne s'oriente jamais, voir followTarget) : dans
+    // quel sens du monde le joueur doit-il marcher pour apparaître aller
+    // à droite / vers la caméra à l'écran ? Sert à choisir la bonne ligne
+    // de sprite dans CharacterAvatar (bas/gauche/haut/droite).
+    const camNorm = Math.hypot(this._cameraOffset.x, this._cameraOffset.z) || 1;
+    this._camSouth = new THREE.Vector3(this._cameraOffset.x / camNorm, 0, this._cameraOffset.z / camNorm);
+    this._camRight = new THREE.Vector3(this._cameraOffset.z / camNorm, 0, -this._cameraOffset.x / camNorm);
+
     this._planetGroups = new Map(); // id -> { group, portalMeshes, spinningPortals }
     this._activePlanetId = null;
     this._avatars = new Map(); // playerId -> THREE.Group
@@ -328,7 +337,7 @@ class PlanetRenderer {
     if (!avatar) return;
     const r = Math.hypot(player.x, player.y);
     const groundY = window.Game.mathUtils.domeHeight(r, this._activePlanetRadius || 200);
-    updateCharacterAvatar(avatar, player, groundY);
+    updateCharacterAvatar(avatar, player, groundY, this._camRight, this._camSouth);
   }
 
   // ------------------------------------------------------------------
