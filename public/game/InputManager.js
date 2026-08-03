@@ -19,7 +19,6 @@ window.Game.InputManager = class InputManager {
   constructor() {
     this.pressed = new Set();
     this.active = false;
-    this.shiftHeld = false;
 
     this._onKeyDown = this._onKeyDown.bind(this);
     this._onKeyUp = this._onKeyUp.bind(this);
@@ -41,12 +40,6 @@ window.Game.InputManager = class InputManager {
     window.removeEventListener('keyup', this._onKeyUp);
     window.removeEventListener('blur', this._onBlur);
     this.pressed.clear();
-    this.shiftHeld = false;
-  }
-
-  /** Touche Shift maintenue -> déplacement en course plutôt qu'en marche. */
-  isRunning() {
-    return this.shiftHeld;
   }
 
   _isTypingTarget(target) {
@@ -56,7 +49,6 @@ window.Game.InputManager = class InputManager {
 
   _onKeyDown(e) {
     if (this._isTypingTarget(e.target)) return;
-    if (e.key === 'Shift') this.shiftHeld = true;
     if (MOVE_KEYS.has(e.key)) {
       this.pressed.add(e.key);
       e.preventDefault();
@@ -64,7 +56,6 @@ window.Game.InputManager = class InputManager {
   }
 
   _onKeyUp(e) {
-    if (e.key === 'Shift') this.shiftHeld = false;
     if (MOVE_KEYS.has(e.key)) {
       this.pressed.delete(e.key);
     }
@@ -72,7 +63,6 @@ window.Game.InputManager = class InputManager {
 
   _onBlur() {
     this.pressed.clear();
-    this.shiftHeld = false;
   }
 
   /**

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Clairval — Univers cosy</title>
+<title>Constellation — Univers cosy</title>
 <link rel="stylesheet" href="style.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <!-- Three.js chargé en ESM depuis un CDN, sans étape de build : le
@@ -23,7 +23,7 @@
   <div class="topbar">
     <div class="topbar__brand">
       <span class="dot dot--off" id="statusDot"></span>
-      <span class="topbar__title">🌿 Clairval</span>
+      <span class="topbar__title">✦ Constellation</span>
     </div>
     <div class="topbar__meta">
       <span class="topbar__label">Compte</span>
@@ -96,24 +96,24 @@
   </main>
 
   <!-- ============================================================ -->
-  <!-- OVERLAY : mini-jeu 2.5D (sprites 2D animés + décor 3D léger)   -->
+  <!-- OVERLAY : mini-jeu 2D (vue isométrique)                        -->
   <!-- C'est la vue PAR DÉFAUT dès qu'on est dans une salle.          -->
   <!-- Tab ouvre/ferme le chat par-dessus (voir #chatOverlay).        -->
   <!-- ============================================================ -->
   <div id="gameOverlay" class="game-overlay">
     <div class="game-overlay__hud">
-      <span class="game-overlay__title">🌿 Clairval</span>
+      <span class="game-overlay__title">🪐 Constellation</span>
       <span class="game-overlay__count"><span id="gamePlayerCount">0</span> voyageur(s) dans les environs</span>
       <label class="game-overlay__setting" title="Affiche le dernier message de chaque joueur dans une bulle au-dessus de son personnage">
         <input type="checkbox" id="chatBubblesToggle" checked />
         🗨️ Bulles de chat
       </label>
-      <span class="game-overlay__hint">Déplacement : ZQSD / flèches · <kbd>Maj</kbd> pour courir · <kbd>Tab</kbd> pour le chat · <kbd>E</kbd> pour le sac</span>
+      <span class="game-overlay__hint">Déplacement : ZQSD / flèches · <kbd>Tab</kbd> pour le chat · <kbd>E</kbd> pour le sac</span>
     </div>
 
     <div class="game-overlay__viewport">
       <canvas id="gameCanvas" class="game-overlay__canvas"></canvas>
-      <div id="zoneBanner" class="zone-banner"></div>
+      <div id="planetBanner" class="planet-banner"></div>
       <div id="worldBubbleLayer" class="world-bubble-layer" aria-live="polite"></div>
     </div>
 
@@ -125,7 +125,7 @@
     <!-- ============================================================ -->
     <div class="rpg-hud">
       <div class="rpg-hud__portrait-card">
-        <div class="rpg-hud__portrait">🧑‍🌾</div>
+        <div class="rpg-hud__portrait">🧑‍🚀</div>
         <div class="rpg-hud__identity">
           <span class="rpg-hud__name" id="hudPlayerName">Voyageur</span>
           <div class="rpg-hud__bar rpg-hud__bar--hp">
@@ -230,19 +230,18 @@
   <!-- Ils se branchent sur `socket` et `state` (définis ci-dessus par-->
   <!-- client.js) sans jamais les modifier.                          -->
   <script src="game/mathUtils.js"></script>
-  <script src="game/SpriteAnimator.js"></script>
   <script src="game/Player.js"></script>
   <script src="game/Inventory.js"></script>
   <script src="game/InputManager.js"></script>
   <script src="game/GameNetwork.js"></script>
 
-  <!-- Rendu 2.5D (Three.js, chargé via l'import map ci-dessus). Module ES -->
-  <!-- unique : ses propres dépendances (WorldBuilder, CharacterAvatar,    -->
-  <!-- AssetManifest) sont importées automatiquement. Un script "module"   -->
-  <!-- s'exécute toujours après le HTML parsé et avant DOMContentLoaded,   -->
-  <!-- donc window.Game.WorldRenderer est garanti prêt quand game/main.js  -->
-  <!-- démarre le moteur ci-dessous.                                        -->
-  <script type="module" src="game/render/WorldRenderer.js"></script>
+  <!-- Rendu 3D (Three.js, chargé via l'import map ci-dessus). Module ES -->
+  <!-- unique : ses propres dépendances (PlanetBuilder, CharacterAvatar) -->
+  <!-- sont importées automatiquement. Un script "module" s'exécute      -->
+  <!-- toujours après le HTML parsé et avant DOMContentLoaded, donc      -->
+  <!-- window.Game.PlanetRenderer est garanti prêt quand game/main.js    -->
+  <!-- démarre le moteur ci-dessous.                                      -->
+  <script type="module" src="game/render/PlanetRenderer.js"></script>
 
   <script src="game/GameEngine.js"></script>
   <script src="game/main.js"></script>

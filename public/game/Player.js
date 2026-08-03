@@ -4,11 +4,10 @@
  * game/Player.js
  * ----------------------------------------------------------------------
  * Représente un joueur dans le mini-jeu : identité + position dans le
- * monde + état d'animation (direction affichée, marche/course, en
- * mouvement ou non, horloge d'animation locale). Ne sait rien du réseau
- * ni du rendu : une entité de données pure, mise à jour par GameEngine
- * et lue par game/render/CharacterAvatar.js pour choisir quelle ligne/
- * colonne du sprite-sheet afficher (voir game/render/SpriteAnimator.js).
+ * monde + état d'animation (direction affichée, en mouvement ou non,
+ * horloge d'animation locale). Ne sait rien du réseau ni du rendu : une
+ * entité de données pure, mise à jour par GameEngine et lue par
+ * game/render/PlanetRenderer.js + CharacterAvatar.js pour l'affichage 3D.
  * ----------------------------------------------------------------------
  */
 
@@ -31,26 +30,19 @@ window.Game.Player = class Player {
     this.targetX = x;
     this.targetY = y;
 
-    // État d'animation : direction affichée (4 sens — voir
-    // game/render/SpriteAnimator.js), marche/course en cours, et horloge
-    // locale (avance seulement pendant le mouvement pour un cycle
-    // cohérent).
-    this.facingDirection = 'down';
+    // État d'animation : angle de direction (radians, continu — le
+    // rendu 3D fait tourner la créature en douceur au lieu de sauter
+    // entre 8 sprites), marche en cours ou non, et horloge locale
+    // (avance seulement pendant le mouvement pour un cycle cohérent).
+    this.facingAngle = 0;
     this.isMoving = false;
-    this.isRunning = false;
     this.animTime = 0;
 
-    // Point d'accroche pour de futures mécaniques (récolte, interaction,
-    // attaque) : purement cosmétique tant que rien ne l'appelle — voir
-    // triggerAction() plus bas. N'affecte aucune mécanique existante.
-    this.actionState = null;
-    this._actionExpiresAt = 0;
-
-    // Zone courante (voir game/render/WorldBuilder.js). Purement
+    // Planète courante (voir game/render/PlanetBuilder.js). Purement
     // informatif pour l'affichage/collision ; ne change rien au protocole
     // réseau existant (juste un champ de plus dans le payload générique
-    // {x, y, zone} — voir game/GameNetwork.js).
-    this.zone = 'village';
+    // {x, y, planet} — voir game/GameNetwork.js).
+    this.planet = 'hub';
 
     // Bulle de chat au-dessus de la tête : dernier message envoyé par ce
     // joueur, affiché temporairement puis effacé tout seul (voir
@@ -80,24 +72,6 @@ window.Game.Player = class Player {
     return this.chatText;
   }
 
-  /**
-   * Déclenche une animation d'action ponctuelle (ex: 'harvest',
-   * 'interact', 'attack') pendant durationMs, puis retombe toute seule
-   * sur idle/walk. Rien n'appelle cette méthode aujourd'hui — c'est un
-   * point d'accroche prêt pour une future mécanique (récolte, etc.) sans
-   * avoir à retoucher le moteur de rendu.
-   */
-  triggerAction(name, durationMs = 500) {
-    this.actionState = name;
-    this._actionExpiresAt = Date.now() + durationMs;
-  }
-
-  /** Action encore active à l'instant `now` (ms), sinon null. */
-  getActiveAction(now = Date.now()) {
-    if (!this.actionState || now >= this._actionExpiresAt) return null;
-    return this.actionState;
-  }
-
   // Rapproche progressivement la position affichée de la dernière
   // position réseau connue. Purement cosmétique : masque la latence et
   // la fréquence d'échantillonnage des messages réseau.
@@ -109,21 +83,18 @@ window.Game.Player = class Player {
 
   /**
    * Met à jour l'état d'animation à partir d'un vecteur de déplacement
-   * MONDE (dx, dy) mesuré sur ce pas de temps, et de l'état "course".
-   * La direction est réduite aux 4 sens d'un sprite top-down classique
-   * (bas/gauche/droite/haut) plutôt qu'un angle continu.
+   * MONDE (dx, dy) mesuré sur ce pas de temps. Le moteur 3D n'a plus
+   * besoin de connaître le renderer ici : l'angle de direction se
+   * calcule directement dans l'espace monde (atan2), et c'est le
+   * renderer qui décide comment l'afficher (rotation douce du modèle).
    */
-  updateAnimation(dt, worldDX, worldDY, running = false) {
+  updateAnimation(dt, worldDX, worldDY) {
     const moveDistSq = worldDX * worldDX + worldDY * worldDY;
     const threshold = 0.02;
     this.isMoving = moveDistSq > threshold * threshold;
-    this.isRunning = this.isMoving && running;
 
     if (this.isMoving) {
-      this.facingDirection =
-        Math.abs(worldDX) > Math.abs(worldDY)
-          ? (worldDX > 0 ? 'right' : 'left')
-          : (worldDY > 0 ? 'down' : 'up');
+      this.facingAngle = Math.atan2(worldDX, worldDY);
       this.animTime += dt;
     } else {
       this.animTime += dt * 0.5; // continue doucement pour l'animation idle

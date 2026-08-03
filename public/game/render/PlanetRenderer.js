@@ -3,11 +3,17 @@
 /**
  * game/render/PlanetRenderer.js
  * ----------------------------------------------------------------------
- * Remplace l'ancien rendu 2D isométrique (canvas 2D, game/IsoRenderer.js
- * + sprites/*) par un rendu 3D low poly avec Three.js. Expose une API
- * volontairement proche de l'ancien renderer (resize/clear-render/
- * setCamera-like/setTime) pour que game/GameEngine.js reste organisé de
- * la même façon, même si l'implémentation interne est entièrement neuve.
+ * Utilise Three.js comme moteur de rendu, mais pour une structure 2D
+ * plate façon vieux RPG : sol plat, décor et personnages en sprites
+ * (billboards toujours face caméra, voir CharacterAvatar.js et la
+ * section décor de PlanetBuilder.js), vus depuis une caméra suiveuse à
+ * angle fixe et légèrement en hauteur (jamais orbitale). Three.js sert
+ * ici de "moteur 2.5D" (profondeur, lumière d'ambiance, portails,
+ * particules de fond) plutôt qu'à un vrai monde en relief.
+ *
+ * Expose une API volontairement stable (resize/clear-render/setCamera-
+ * like/setTime) pour que game/GameEngine.js reste organisé de la même
+ * façon quelle que soit l'implémentation interne du renderer.
  *
  * Chargé en <script type="module"> (voir index.html) : s'attache lui-même
  * à window.Game.PlanetRenderer une fois prêt, exactement comme les autres
@@ -125,7 +131,20 @@ class PlanetRenderer {
     this.time = 0;
     this._camPos = new THREE.Vector3(0, 60, 70);
     this._camLookAt = new THREE.Vector3(0, 6, 0);
-    this._cameraOffset = new THREE.Vector3(26, 46, 52);
+    // Caméra centrée façon "vieux RPG" (top-down avec un léger angle,
+    // plutôt que le 3/4 décalé d'avant) : on garde X à 0 pour que les
+    // axes écran (droite/bas) collent aux axes du monde, cohérent avec
+    // une structure 2D plate.
+    this._cameraOffset = new THREE.Vector3(0, 58, 44);
+
+    // Vecteurs "écran" déduits une fois pour toutes de cet offset fixe
+    // (la caméra suiveuse ne s'oriente jamais, voir followTarget) : dans
+    // quel sens du monde le joueur doit-il marcher pour apparaître aller
+    // à droite / vers la caméra à l'écran ? Sert à choisir la bonne ligne
+    // de sprite dans CharacterAvatar (bas/gauche/haut/droite).
+    const camNorm = Math.hypot(this._cameraOffset.x, this._cameraOffset.z) || 1;
+    this._camSouth = new THREE.Vector3(this._cameraOffset.x / camNorm, 0, this._cameraOffset.z / camNorm);
+    this._camRight = new THREE.Vector3(this._cameraOffset.z / camNorm, 0, -this._cameraOffset.x / camNorm);
 
     this._planetGroups = new Map(); // id -> { group, portalMeshes, spinningPortals }
     this._activePlanetId = null;
@@ -328,7 +347,7 @@ class PlanetRenderer {
     if (!avatar) return;
     const r = Math.hypot(player.x, player.y);
     const groundY = window.Game.mathUtils.domeHeight(r, this._activePlanetRadius || 200);
-    updateCharacterAvatar(avatar, player, groundY);
+    updateCharacterAvatar(avatar, player, groundY, this._camRight, this._camSouth);
   }
 
   // ------------------------------------------------------------------

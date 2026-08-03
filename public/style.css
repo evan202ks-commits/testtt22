@@ -9,33 +9,33 @@
 @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 :root {
-  --bg-a: #fff3d6;
-  --bg-b: #ffe3b0;
-  --bg-c: #d9edc4;
-  --bg-d: #bfe3d8;
+  --bg-a: #ffe3c9;
+  --bg-b: #ffd3e6;
+  --bg-c: #d9e3ff;
+  --bg-d: #cdeeff;
 
-  --panel: rgba(255, 251, 240, 0.86);
+  --panel: rgba(255, 251, 246, 0.82);
   --panel-alt: rgba(255, 255, 255, 0.55);
-  --panel-solid: #fffaf0;
-  --border: rgba(255, 255, 255, 0.92);
-  --border-soft: rgba(94, 71, 38, 0.14);
+  --panel-solid: #fffaf3;
+  --border: rgba(255, 255, 255, 0.9);
+  --border-soft: rgba(120, 90, 130, 0.12);
 
-  --text: #4a3826;
-  --muted: #8a7358;
-  --muted-dim: #b3a084;
+  --text: #4a3b55;
+  --muted: #8d7a97;
+  --muted-dim: #b6a7bd;
 
   --signal: #52c98a;        /* connecté / actif */
   --signal-dim: #bdeccf;
   --signal-ink: #0d3b26;
-  --warn: #e8a23f;          /* reconnexion / grâce */
-  --danger: #e0665a;        /* déconnecté / erreur */
-  --accent: #4f9bd1;        /* liens / infos secondaires */
-  --accent-warm: #c8703f;   /* accents chauds (titres, bannière de zone) */
+  --warn: #ffb15e;          /* reconnexion / grâce */
+  --danger: #ff7d95;        /* déconnecté / erreur */
+  --accent: #7ab8f5;        /* liens / infos secondaires */
+  --accent-lav: #b79bf0;
 
   --radius: 20px;
   --radius-sm: 13px;
-  --shadow-soft: 0 10px 28px rgba(90, 60, 20, 0.14), 0 2px 6px rgba(90, 60, 20, 0.08);
-  --shadow-pop: 0 14px 34px rgba(90, 60, 20, 0.2), 0 4px 10px rgba(90, 60, 20, 0.12);
+  --shadow-soft: 0 10px 28px rgba(120, 80, 120, 0.14), 0 2px 6px rgba(120, 80, 120, 0.08);
+  --shadow-pop: 0 14px 34px rgba(120, 80, 120, 0.2), 0 4px 10px rgba(120, 80, 120, 0.12);
 
   --font-ui: 'Baloo 2', 'Nunito', system-ui, sans-serif;
   --font-body: 'Nunito', system-ui, sans-serif;
@@ -70,9 +70,9 @@ code {
 
 /* Scrollbars douces (amélioration cosmétique, dégrade proprement si non
    supporté par le navigateur). */
-* { scrollbar-width: thin; scrollbar-color: var(--accent-warm) transparent; }
+* { scrollbar-width: thin; scrollbar-color: var(--accent-lav) transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
-*::-webkit-scrollbar-thumb { background: rgba(200, 112, 63, 0.4); border-radius: 8px; }
+*::-webkit-scrollbar-thumb { background: rgba(183, 155, 240, 0.5); border-radius: 8px; }
 *::-webkit-scrollbar-track { background: transparent; }
 
 @keyframes floatIn {
@@ -300,12 +300,11 @@ input[type="password"] { margin-bottom: 18px; }
   border: 1.5px solid transparent;
   padding: 12px 20px;
   cursor: pointer;
-  transition: transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.15s ease, box-shadow 0.18s ease, background 0.15s ease;
+  transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
   white-space: nowrap;
-  box-shadow: 0 2px 0 rgba(90, 60, 20, 0.08);
 }
-.btn:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(90, 60, 20, 0.16); }
-.btn:active { transform: translateY(1px) scale(0.98); box-shadow: 0 1px 0 rgba(90, 60, 20, 0.1); }
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(1px) scale(0.98); }
 
 .btn--primary {
   background: linear-gradient(180deg, #6be0a4, var(--signal));
@@ -317,9 +316,9 @@ input[type="password"] { margin-bottom: 18px; }
 .btn--secondary {
   background: var(--panel-solid);
   border-color: var(--accent);
-  color: #2d6f96;
+  color: #2f6fb0;
 }
-.btn--secondary:hover { background: rgba(79, 155, 209, 0.12); }
+.btn--secondary:hover { background: rgba(122, 184, 245, 0.12); }
 
 .btn--ghost {
   background: transparent;
@@ -631,7 +630,7 @@ kbd {
   z-index: 40;
   display: none;
   flex-direction: column;
-  background: linear-gradient(180deg, #bfe3d8 0%, #d9edc4 55%, #ffe3b0 100%);
+  background: radial-gradient(circle at 50% 30%, #4a3560 0%, #241a3d 100%);
 }
 
 .game-overlay--active {
@@ -656,7 +655,7 @@ kbd {
 
 .game-overlay__title {
   font-family: var(--font-ui);
-  color: var(--accent-warm);
+  color: #7a4fbf;
   font-weight: 700;
   letter-spacing: 0.2px;
 }
@@ -702,9 +701,9 @@ kbd {
   cursor: default;
 }
 
-/* Bannière de nom de zone — apparaît brièvement à chaque arrivée      */
-/* dans une zone (voir game/render/WorldRenderer.js).                  */
-.zone-banner {
+/* Bannière de nom de planète — apparaît brièvement à chaque arrivée   */
+/* sur une planète (voir game/render/PlanetRenderer.js).               */
+.planet-banner {
   position: absolute;
   top: 22px;
   left: 50%;
@@ -717,14 +716,14 @@ kbd {
   font-family: var(--font-ui);
   font-weight: 700;
   font-size: 14px;
-  color: var(--accent-warm);
+  color: #7a4fbf;
   opacity: 0;
   pointer-events: none;
   z-index: 15;
   transition: opacity 0.5s ease, transform 0.5s ease;
 }
 
-.zone-banner--show {
+.planet-banner--show {
   opacity: 1;
   transform: translate(-50%, 0);
   animation: bannerFade 3.2s ease forwards;
@@ -935,7 +934,7 @@ kbd {
   font-weight: 700;
   letter-spacing: 0.4px;
   text-transform: uppercase;
-  color: var(--accent-warm);
+  color: #7a4fbf;
 }
 
 .rpg-hud__inventory-grid {
@@ -1037,7 +1036,7 @@ kbd {
   font-family: var(--font-ui);
   font-size: 16px;
   font-weight: 700;
-  color: var(--accent-warm);
+  color: #7a4fbf;
 }
 
 .inventory-panel__hint {
@@ -1064,7 +1063,7 @@ kbd {
   border-radius: 12px;
   transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.inventory-slot:hover { transform: translateY(-3px); box-shadow: 0 8px 14px rgba(90, 60, 20, 0.18); border-color: var(--accent-warm); }
+.inventory-slot:hover { transform: translateY(-2px); }
 
 .inventory-slot--empty {
   opacity: 0.5;
@@ -1081,7 +1080,7 @@ kbd {
   font-size: 9.5px;
   font-weight: 800;
   font-family: var(--font-ui);
-  color: var(--accent-warm);
+  color: #7a4fbf;
 }
 
 @media (max-width: 480px) {
