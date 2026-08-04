@@ -17,19 +17,26 @@
  * sélectionnée se change avec les touches 1-9, la molette de la
  * souris, ou un clic direct sur une case — et est elle aussi
  * sauvegardée par joueur (`rpg-hotbar-selection:<userId>`).
+ * Équipement visible : quand la case sélectionnée de la hotbar porte un
+ * `equipId` (ex. le lance-cacahuète), ce même identifiant est remonté via
+ * le callback `onSelectionChange` (option du constructeur) à chaque
+ * changement de sélection — c'est ce qui permet à game/GameEngine.js
+ * d'afficher l'objet dans la main du personnage à l'écran (et de le
+ * diffuser aux autres joueurs de la salle).
  * ----------------------------------------------------------------------
  */
 
 window.Game = window.Game || {};
 
 window.Game.Inventory = class Inventory {
-  constructor({ overlayEl, gridEl, closeBtn, hotbarEl, slotCount = 24, hotbarSize = 9 }) {
+  constructor({ overlayEl, gridEl, closeBtn, hotbarEl, slotCount = 24, hotbarSize = 9, onSelectionChange }) {
     this.overlayEl = overlayEl;
     this.gridEl = gridEl;
     this.closeBtn = closeBtn;
     this.hotbarEl = hotbarEl;
     this.slotCount = slotCount;
     this.hotbarSize = Math.min(hotbarSize, slotCount);
+    this.onSelectionChange = typeof onSelectionChange === 'function' ? onSelectionChange : null;
 
     this.userId = null;
     this.slots = [];
@@ -63,7 +70,12 @@ window.Game.Inventory = class Inventory {
     slots[1] = { icon: '🧪', name: 'Potion de soin', qty: 2 };
     slots[2] = { icon: '🪵', name: 'Bois', qty: 3 };
     slots[3] = { icon: '🍞', name: 'Pain', qty: 1 };
-    slots[4] = { image: '/assets/sprites/item_peanut_launcher.png', name: 'Lance-cacahuète', qty: 1 };
+    slots[4] = {
+      image: '/assets/sprites/item_peanut_launcher.png',
+      name: 'Lance-cacahuète',
+      qty: 1,
+      equipId: 'peanut_launcher',
+    };
     return slots;
   }
 
@@ -210,6 +222,7 @@ window.Game.Inventory = class Inventory {
   initFor(userId) {
     this._ensureLoadedFor(userId);
     this._renderHotbar();
+    this.onSelectionChange?.(this.getSelectedItem());
   }
 
   /** Sélectionne une case de la hotbar par son index (0-based). */
@@ -219,6 +232,7 @@ window.Game.Inventory = class Inventory {
     this._saveSelection();
     this._renderHotbar();
     if (this.open) this._render();
+    this.onSelectionChange?.(this.getSelectedItem());
   }
 
   /** Fait défiler la sélection de la hotbar (molette de souris, +1/-1). */

@@ -43,6 +43,35 @@ window.Game = window.Game || {};
   const CHAR_HEIGHT = 88;
   const CHAR_WIDTH = CHAR_HEIGHT * (FRAME_W / FRAME_H);
 
+  // ------------------------------------------------------------------
+  // Objets tenus en main (voir game/Inventory.js `equipId` / GameEngine
+  // .setLocalEquipped) : une seule image par objet, toujours affichée du
+  // même côté (main droite à l'écran) quelle que soit la direction —
+  // même parti pris que le bâton déjà peint dans l'atlas du personnage,
+  // qui lui non plus ne change pas de côté. Ancrage calibré à l'œil pour
+  // tomber à hauteur de hanche, par-dessus le personnage.
+  // ------------------------------------------------------------------
+  const EQUIP_SPRITES = {
+    peanut_launcher: { url: '/assets/sprites/item_peanut_launcher_hand.png', w: 442, h: 252 },
+  };
+  const EQUIP_HEIGHT_FRAC = 0.36; // proportion de CHAR_HEIGHT
+  const EQUIP_HAND_X_FRAC = 0.80; // proportion de CHAR_WIDTH depuis le bord gauche du personnage
+  const EQUIP_HAND_Y_FRAC = 0.74; // proportion de CHAR_HEIGHT depuis le haut du personnage
+  const EQUIP_GRIP_X_FRAC = 0.20; // point de "prise" sur le sprite de l'objet
+  const EQUIP_GRIP_Y_FRAC = 0.52;
+
+  const _equipImages = {};
+  function getEquipImage(equipId) {
+    const def = EQUIP_SPRITES[equipId];
+    if (!def) return null;
+    if (!_equipImages[equipId]) {
+      const img = new Image();
+      img.src = def.url;
+      _equipImages[equipId] = img;
+    }
+    return _equipImages[equipId];
+  }
+
   let sharedAtlas = null;
   function getSharedAtlas() {
     if (!sharedAtlas) {
@@ -120,7 +149,7 @@ window.Game = window.Game || {};
     // ------------------------------------------------------------------
     ensureAvatar(id, { color, isLocal }) {
       if (this._avatars.has(id)) return this._avatars.get(id);
-      const avatar = { color, isLocal, frame: { col: 0, row: ROW_DOWN }, bobY: 0 };
+      const avatar = { color, isLocal, frame: { col: 0, row: ROW_DOWN }, bobY: 0, equippedItem: null };
       this._avatars.set(id, avatar);
       return avatar;
     }
@@ -150,6 +179,8 @@ window.Game = window.Game || {};
       const col = player.isMoving ? 1 + Math.floor((t * 6) % 4) : 0;
       frame.col = col;
       frame.row = row;
+
+      avatar.equippedItem = player.equippedItem || null;
     }
 
     // ------------------------------------------------------------------
@@ -237,6 +268,32 @@ window.Game = window.Game || {};
         this.ctx.arc(p.x, p.y - CHAR_HEIGHT / 2, CHAR_WIDTH * 0.32, 0, Math.PI * 2);
         this.ctx.fill();
       }
+
+      this._drawEquippedItem(avatar, p.x, p.y);
+    }
+
+    /**
+     * Dessine, par-dessus le personnage, l'objet qu'il tient en main
+     * (voir avatar.equippedItem, alimenté par player.equippedItem —
+     * lui-même mis à jour par GameEngine.setLocalEquipped en local, ou
+     * par le protocole réseau "game:equip" pour les autres joueurs).
+     * Toujours affiché du même côté à hauteur de hanche (voir constantes
+     * EQUIP_* en tête de fichier), quelle que soit la direction affichée.
+     */
+    _drawEquippedItem(avatar, screenX, screenY) {
+      if (!avatar.equippedItem) return;
+      const def = EQUIP_SPRITES[avatar.equippedItem];
+      const img = getEquipImage(avatar.equippedItem);
+      if (!def || !img || !img.complete || !img.naturalWidth) return;
+
+      const h = CHAR_HEIGHT * EQUIP_HEIGHT_FRAC;
+      const w = h * (def.w / def.h);
+      const handX = screenX - CHAR_WIDTH / 2 + CHAR_WIDTH * EQUIP_HAND_X_FRAC;
+      const handY = screenY - CHAR_HEIGHT - avatar.bobY + CHAR_HEIGHT * EQUIP_HAND_Y_FRAC;
+      const drawX = handX - w * EQUIP_GRIP_X_FRAC;
+      const drawY = handY - h * EQUIP_GRIP_Y_FRAC;
+
+      this.ctx.drawImage(img, drawX, drawY, w, h);
     }
 
     render(dt, players) {

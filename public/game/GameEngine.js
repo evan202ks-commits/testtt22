@@ -48,6 +48,11 @@ window.Game.GameEngine = class GameEngine {
     this.speedRun = 300; // unités monde (px) / seconde, course (Shift)
     this.gameTime = 0;
 
+    // Objet actuellement tenu en main par le joueur local (voir
+    // setLocalEquipped), rappliqué au Player local dès sa création et
+    // rediffusé aux nouveaux arrivants (voir _handlePlayerJoined).
+    this._localEquipId = null;
+
     // Paramètre : bulles de chat au-dessus des personnages. Activé par
     // défaut ; peut être coupé via setChatBubblesEnabled (voir main.js).
     this.chatBubblesEnabled = true;
@@ -80,6 +85,7 @@ window.Game.GameEngine = class GameEngine {
       onPlayerJoined: (user) => this._handlePlayerJoined(user),
       onPlayerLeft: (userId) => this._handlePlayerLeft(userId),
       onChatMessage: (userId, text) => this._handleChatMessage(userId, text),
+      onEquip: (userId, equipId) => this._handleRemoteEquip(userId, equipId),
     });
 
     this.input.enable();
@@ -120,6 +126,21 @@ window.Game.GameEngine = class GameEngine {
   setChatBubblesEnabled(enabled) {
     this.chatBubblesEnabled = !!enabled;
     if (!this.chatBubblesEnabled) this._clearBubbles();
+  }
+
+  /**
+   * Objet tenu en main par le joueur local (voir game/Inventory.js,
+   * callback `onSelectionChange`, branché depuis game/main.js). Met à
+   * jour l'affichage local tout de suite et diffuse le changement au
+   * reste de la salle (voir GameNetwork.sendEquip / protocole
+   * "game:equip"), pour que les autres joueurs le voient aussi.
+   */
+  setLocalEquipped(equipId) {
+    this._localEquipId = equipId || null;
+    const session = this.getSessionState();
+    const me = session?.myUserId ? this.players.get(session.myUserId) : null;
+    if (me) me.setEquipped(this._localEquipId);
+    if (this._running) this.network.sendEquip(this._localEquipId);
   }
 
   // ------------------------------------------------------------------
@@ -257,6 +278,7 @@ window.Game.GameEngine = class GameEngine {
       y: spawn.y,
       isLocal: true,
     });
+    me.setEquipped(this._localEquipId);
     this.players.set(me.id, me);
     this.renderer.ensureAvatar(me.id, { color: me.color, isLocal: true });
   }
@@ -303,12 +325,29 @@ window.Game.GameEngine = class GameEngine {
 
   _handlePlayerJoined(user) {
     this._ensurePlayer(user.id, user.username);
+    // Le nouvel arrivant ne peut pas deviner ce qu'on tient déjà en main
+    // (le protocole "game:equip" n'est diffusé qu'aux changements) : on
+    // rediffuse notre état courant pour qu'il le reçoive tout de suite.
+    if (this._running) this.network.sendEquip(this._localEquipId);
   }
 
   _handlePlayerLeft(userId) {
     this.players.delete(userId);
     this.renderer.removeAvatar(userId);
     this.onRosterChange(this.players.size);
+  }
+
+  /**
+   * Un autre joueur vient de changer (ou d'annoncer) l'objet qu'il tient
+   * en main (voir GameNetwork "game:equip"). Ignoré pour soi-même : io.to()
+   * renvoie aussi à l'émetteur, et notre propre état est déjà à jour
+   * localement (voir setLocalEquipped).
+   */
+  _handleRemoteEquip(userId, equipId) {
+    const session = this.getSessionState();
+    if (userId === session?.myUserId) return;
+    const player = this._ensurePlayer(userId);
+    player.setEquipped(equipId);
   }
 
   /**

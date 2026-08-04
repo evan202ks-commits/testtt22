@@ -64,6 +64,18 @@ window.Game.Player = class Player {
     // showChatBubble / getVisibleChatText).
     this.chatText = '';
     this.chatExpiresAt = 0;
+
+    // Objet actuellement équipé (identifiant `equipId` d'un objet du sac,
+    // ex. "peanut_launcher", ou null si aucun). Lu par
+    // game/render/WorldRenderer.js pour afficher le sprite correspondant
+    // dans la main du personnage. Pour le joueur local, mis à jour par
+    // GameEngine.setLocalEquipped(); pour les autres, par les messages
+    // réseau "game:equip" (voir GameNetwork.js).
+    this.equippedItem = null;
+  }
+
+  setEquipped(equipId) {
+    this.equippedItem = equipId || null;
   }
 
   setTarget(x, y) {

@@ -63,6 +63,7 @@
       gridEl: inventoryGrid,
       closeBtn: btnCloseInventory,
       hotbarEl,
+      onSelectionChange: (item) => engine.setLocalEquipped(item?.equipId || null),
     });
 
     // ---------------------------------------------------------------

@@ -18,6 +18,13 @@
  * {from, type, data, timestamp} déjà fournie par le serveur) :
  *   - type "game:move" , data: { x, y } -> position d'un joueur dans le
  *     monde 2D (un seul monde, plus de champ "planet" à transporter).
+ *   - type "game:equip", data: { equipId } -> objet actuellement tenu en
+ *     main par ce joueur (identifiant `equipId` d'un objet du sac, ex.
+ *     "peanut_launcher", ou null si mains vides). Diffusé à chaque
+ *     changement de sélection de la hotbar (voir game/Inventory.js /
+ *     GameEngine.setLocalEquipped), et rediffusé par les joueurs déjà en
+ *     salle quand quelqu'un de nouveau arrive, pour que son état actuel
+ *     leur soit connu sans transiter par le serveur.
  *   - type "chat"       , data: { text }        -> message de chat (déjà
  *     émis par public/client.js pour alimenter le panneau de chat) ; on
  *     l'écoute ICI EN PLUS, sans rien changer à client.js, pour afficher
@@ -44,6 +51,7 @@ window.Game.GameNetwork = class GameNetwork {
     this._joinHandler = null;
     this._leaveHandler = null;
     this._chatHandler = null;
+    this._equipHandler = null;
 
     this._onBroadcast = this._onBroadcast.bind(this);
     this._onRoomUsers = this._onRoomUsers.bind(this);
@@ -51,12 +59,13 @@ window.Game.GameNetwork = class GameNetwork {
     this._onUserLeft = this._onUserLeft.bind(this);
   }
 
-  connectHandlers({ onMove, onRosterSync, onPlayerJoined, onPlayerLeft, onChatMessage }) {
+  connectHandlers({ onMove, onRosterSync, onPlayerJoined, onPlayerLeft, onChatMessage, onEquip }) {
     this._moveHandler = onMove;
     this._rosterHandler = onRosterSync;
     this._joinHandler = onPlayerJoined;
     this._leaveHandler = onPlayerLeft;
     this._chatHandler = onChatMessage;
+    this._equipHandler = onEquip;
 
     this.socket.on('message:broadcast', this._onBroadcast);
     this.socket.on('room:users', this._onRoomUsers);
@@ -77,6 +86,10 @@ window.Game.GameNetwork = class GameNetwork {
     if (!envelope?.type || !envelope.data) return;
     if (envelope.type === 'game:move') {
       this._moveHandler?.(envelope.from, envelope.data.x, envelope.data.y);
+      return;
+    }
+    if (envelope.type === 'game:equip') {
+      this._equipHandler?.(envelope.from, envelope.data.equipId || null);
       return;
     }
     if (envelope.type === 'chat' && typeof envelope.data.text === 'string') {
@@ -109,6 +122,19 @@ window.Game.GameNetwork = class GameNetwork {
     this.socket.emit('message:broadcast', {
       type: 'game:move',
       data: { x: Math.round(x), y: Math.round(y) },
+    });
+  }
+
+  /**
+   * Diffuse l'objet actuellement tenu en main par le joueur local (ou
+   * `null` pour "mains vides") à toute la salle. Contrairement à
+   * sendPosition, jamais throttlé : un changement de sélection dans la
+   * hotbar est un évènement ponctuel, pas un flux continu.
+   */
+  sendEquip(equipId) {
+    this.socket.emit('message:broadcast', {
+      type: 'game:equip',
+      data: { equipId: equipId || null },
     });
   }
 };
