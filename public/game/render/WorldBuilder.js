@@ -45,7 +45,7 @@ window.Game = window.Game || {};
     leafTree: { url: '/assets/sprites/trees/leaf_tree.png', w: 156, h: 187 },
     leafTreeBig: { url: '/assets/sprites/trees/leaf_tree_big.png', w: 168, h: 198 },
     pine: { url: '/assets/sprites/trees/pine.png', w: 119, h: 194 },
-    pineBig: { url: '/assets/sprites/trees/pine_big.png', w: 147, h: 172 },
+    pineBig: { url: '/assets/sprites/trees/pine_big.png', w: 147, h: 203 },
     fruitTree: { url: '/assets/sprites/trees/fruit_tree.png', w: 145, h: 156 },
     deadTree: { url: '/assets/sprites/trees/dead_tree.png', w: 122, h: 154 },
   };
