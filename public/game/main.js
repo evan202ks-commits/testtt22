@@ -26,7 +26,6 @@
     const screenRoom = document.getElementById('screen-room');
     const canvas = document.getElementById('gameCanvas');
     const hudCount = document.getElementById('gamePlayerCount');
-    const hudPlayerName = document.getElementById('hudPlayerName');
     const inventoryOverlay = document.getElementById('inventoryOverlay');
     const inventoryGrid = document.getElementById('inventoryGrid');
     const inventoryOwnerName = document.getElementById('inventoryOwnerName');
@@ -40,17 +39,6 @@
       // La page ne contient pas (encore) l'UI attendue, ou client.js n'a
       // pas pu s'initialiser : on abandonne proprement.
       return;
-    }
-
-    // ---------------------------------------------------------------
-    // HUD RPG (portrait/vie/nom déjà dans le HTML) : on reflète juste le
-    // pseudo courant ici. La vie/PA restent purement visuelles (aucune
-    // logique de combat côté serveur). Le sac (touche "e"), lui, est
-    // fonctionnel : voir game/Inventory.js — état propre à chaque joueur,
-    // persistant en localStorage, jamais partagé entre deux joueurs.
-    // ---------------------------------------------------------------
-    function refreshHudIdentity() {
-      if (hudPlayerName) hudPlayerName.textContent = state.myUsername || 'Voyageur';
     }
 
     const engine = new window.Game.GameEngine({
@@ -131,7 +119,6 @@
       if (inRoom) return;
       inRoom = true;
       gameOverlay.classList.add('game-overlay--active');
-      refreshHudIdentity();
       engine.start();
       closeChat(); // le jeu s'affiche en premier, le chat reste fermé par défaut
     }
