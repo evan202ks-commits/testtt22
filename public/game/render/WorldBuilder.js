@@ -41,13 +41,25 @@ window.Game = window.Game || {};
   // réseau de l'image — même principe que FRAME_W/FRAME_H pour l'atlas
   // du personnage dans WorldRenderer.js.
   // ------------------------------------------------------------------
+  // ASSET_VERSION : à incrémenter à chaque fois qu'on remplace un fichier
+  // sprite sur disque sous le même nom. Ajouté en "cache-buster" (?v=)
+  // sur toutes les URLs d'assets ci-dessous : sans ça, un navigateur (ou
+  // un CDN/hébergeur en amont) qui a déjà mis l'ancienne image en cache
+  // continue de l'afficher indéfiniment après un déploiement, même si le
+  // fichier a changé sur le serveur — symptôme typique : un sprite qui
+  // semble "tronqué" ou périmé alors que le fichier source est correct.
+  const ASSET_VERSION = 2;
+  function withVersion(url) {
+    return `${url}?v=${ASSET_VERSION}`;
+  }
+
   const TREE_SPRITE_DEFS = {
-    leafTree: { url: '/assets/sprites/trees/leaf_tree.png', w: 156, h: 187 },
-    leafTreeBig: { url: '/assets/sprites/trees/leaf_tree_big.png', w: 168, h: 198 },
-    pine: { url: '/assets/sprites/trees/pine.png', w: 119, h: 194 },
-    pineBig: { url: '/assets/sprites/trees/pine_big.png', w: 147, h: 203 },
-    fruitTree: { url: '/assets/sprites/trees/fruit_tree.png', w: 145, h: 156 },
-    deadTree: { url: '/assets/sprites/trees/dead_tree.png', w: 122, h: 154 },
+    leafTree: { url: withVersion('/assets/sprites/trees/leaf_tree.png'), w: 156, h: 187 },
+    leafTreeBig: { url: withVersion('/assets/sprites/trees/leaf_tree_big.png'), w: 168, h: 198 },
+    pine: { url: withVersion('/assets/sprites/trees/pine.png'), w: 119, h: 194 },
+    pineBig: { url: withVersion('/assets/sprites/trees/pine_big.png'), w: 147, h: 203 },
+    fruitTree: { url: withVersion('/assets/sprites/trees/fruit_tree.png'), w: 145, h: 156 },
+    deadTree: { url: withVersion('/assets/sprites/trees/dead_tree.png'), w: 122, h: 154 },
   };
   // type de décor (voir WORLD.decor / WORLD.landmarks) -> pioche parmi
   // plusieurs sprites (répétés pour pondérer les chances de tirage).

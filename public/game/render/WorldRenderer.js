@@ -26,7 +26,16 @@
 window.Game = window.Game || {};
 
 (function () {
-  const ATLAS_URL = '/assets/sprites/character_atlas.png';
+  // ASSET_VERSION : voir le commentaire équivalent dans WorldBuilder.js —
+  // même mécanisme de cache-buster (?v=) pour éviter qu'un navigateur/CDN
+  // ne continue de servir une ancienne version mise en cache d'un sprite
+  // après son remplacement sur le serveur.
+  const ASSET_VERSION = 2;
+  function withVersion(url) {
+    return `${url}?v=${ASSET_VERSION}`;
+  }
+
+  const ATLAS_URL = withVersion('/assets/sprites/character_atlas.png');
   const COLS = 5; // idle + 4 frames de marche
   const ROWS = 4; // bas / gauche / dos / droite
   const FRAME_W = 106;
@@ -50,7 +59,7 @@ window.Game = window.Game || {};
   // ------------------------------------------------------------------
   const EQUIPPED_ATLASES = {
     peanut_launcher: {
-      url: '/assets/sprites/character_atlas_peanut_launcher.png',
+      url: withVersion('/assets/sprites/character_atlas_peanut_launcher.png'),
       frameW: 260,
       frameH: 230,
       // Feuille "FACE / CÔTÉ / DOS / CÔTÉ (GAUCHE)" : la ligne "CÔTÉ" y
@@ -115,7 +124,7 @@ window.Game = window.Game || {};
   // tomber à hauteur de hanche, par-dessus le personnage.
   // ------------------------------------------------------------------
   const EQUIP_SPRITES = {
-    peanut_launcher: { url: '/assets/sprites/item_peanut_launcher_hand.png', w: 442, h: 252 },
+    peanut_launcher: { url: withVersion('/assets/sprites/item_peanut_launcher_hand.png'), w: 442, h: 252 },
   };
   const EQUIP_HEIGHT_FRAC = 0.36; // proportion de CHAR_HEIGHT
   const EQUIP_HAND_X_FRAC = 0.80; // proportion de CHAR_WIDTH depuis le bord gauche du personnage
@@ -142,7 +151,7 @@ window.Game = window.Game || {};
   // dessin (voir _drawProjectiles) tourne donc librement autour de son
   // centre sans dépendre d'un axe de départ particulier.
   // ------------------------------------------------------------------
-  const PROJECTILE_SPRITE = { url: '/assets/sprites/item_peanut_projectile.png', w: 220, h: 117 };
+  const PROJECTILE_SPRITE = { url: withVersion('/assets/sprites/item_peanut_projectile.png'), w: 220, h: 117 };
   const PROJECTILE_DISPLAY_H = 13; // hauteur à l'écran (px monde), largeur déduite du ratio du sprite
   const PROJECTILE_SPIN_SPEED = 12; // radians / seconde (vitesse de rotation en vol)
 
