@@ -3,557 +3,715 @@
 /**
  * game/render/WorldBuilder.js
  * ----------------------------------------------------------------------
- * Décrit chaque zone (village + biomes nature), et sait construire le
- * groupe Three.js correspondant : sol texturé (tileset réel, voir
- * AssetManifest), relief doux, eau animée, décor 3D léger (arbres,
- * bâtiments, rochers — primitives géométriques, "2.5D") et flore en
- * sprites 2D (billboards, herbe/fleurs — le "mélange 2D/3D" demandé).
+ * Décrit LE monde 2D — désormais une petite île de départ cosy, cernée
+ * d'eau (falaise + écume + herbe), plutôt qu'une simple prairie
+ * rectangulaire — et sait générer son décor de façon entièrement
+ * procédurale (aucune texture/asset externe à part le sprite du
+ * personnage : tout est peint à la volée sur des <canvas> 2D). Chaque
+ * élément de décor (arbre, buisson, rocher, cabane, ponton...) est peint
+ * une fois sous forme de petite icône (canvas indépendant), puis
+ * WorldRenderer.js se contente de le poser (drawImage) à sa position
+ * dans le monde à chaque frame — même principe qu'un vieux RPG en pixel
+ * art façon "props" plats vus de dessus.
  *
- * Portails = mêmes mécaniques qu'avant (proximité -> changement de
- * zone), juste rethémés en chemins/arches plutôt qu'en anneaux cosmiques.
+ * La forme de l'île est définie par une fonction radius(angle) (ellipse
+ * modulée par quelques harmoniques sinusoïdales, seedée pour être
+ * déterministe) : à la fois pour LA DESSINER (falaise/herbe) et pour
+ * CONTRAINDRE le déplacement du joueur (voir clampToIsland, utilisée par
+ * game/GameEngine.js à la place d'un simple rectangle).
+ *
+ * Ce module est un pur "atelier de construction" : il ne connaît rien du
+ * joueur, du réseau ni de la boucle de jeu. WorldRenderer.js l'utilise
+ * pour peupler la scène une seule fois au chargement (disposition
+ * déterministe : même seed => même décor à chaque partie).
  * ----------------------------------------------------------------------
  */
 
-import * as THREE from 'three';
+window.Game = window.Game || {};
 
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+(function () {
+  const mathUtils = window.Game.mathUtils;
+
+  // ------------------------------------------------------------------
+  // Petits utilitaires couleur (remplacent THREE.Color de l'ancienne
+  // version 3D) : `shade` éclaircit (amount > 0) ou assombrit
+  // (amount < 0) une couleur CSS hex ou un entier 0xRRGGBB ; `hex`
+  // normalise un entier 0xRRGGBB en chaîne CSS "#rrggbb".
+  // ------------------------------------------------------------------
+  function parseColor(color) {
+    if (typeof color === 'number') {
+      return [(color >> 16) & 255, (color >> 8) & 255, color & 255];
+    }
+    let s = String(color).replace('#', '');
+    if (s.length === 3) s = s.split('').map((ch) => ch + ch).join('');
+    const num = parseInt(s, 16) || 0;
+    return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+  }
+
+  function toHex([r, g, b]) {
+    const c = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+    return `#${c(r)}${c(g)}${c(b)}`;
+  }
+
+  function hex(color) {
+    return typeof color === 'number' ? toHex(parseColor(color)) : color;
+  }
+
+  function shade(color, amount) {
+    const [r, g, b] = parseColor(color);
+    const target = amount >= 0 ? 255 : 0;
+    const t = Math.abs(amount);
+    return toHex([r + (target - r) * t, g + (target - g) * t, b + (target - b) * t]);
+  }
+
+  function mix(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  function fillPath(ctx, fill, stroke, lw, build) {
+    ctx.beginPath();
+    build();
+    ctx.closePath();
+    if (fill) {
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
+    if (stroke) {
+      ctx.lineWidth = lw || 4;
+      ctx.strokeStyle = stroke;
+      ctx.stroke();
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Forme de l'île : ellipse (radiusX, radiusY) modulée par quelques
+  // harmoniques sinusoïdales déterministes (même seed => même côte
+  // "grignotée" à chaque partie, comme sur une vraie petite île).
+  // radius(angle) donne la distance du centre jusqu'à la falaise pour un
+  // angle donné (repère standard : x = cos(angle)*r, y = sin(angle)*r).
+  // ------------------------------------------------------------------
+  function makeIslandRadiusFn(seed, radiusX, radiusY) {
+    const rng = mathUtils.mulberry32(seed);
+    const harmonics = [2, 3, 5, 7].map((freq) => ({
+      freq: freq + (rng() < 0.5 ? 0 : 1),
+      amp: 0.05 + rng() * 0.09,
+      phase: rng() * Math.PI * 2,
+    }));
+    return function islandRadius(angle) {
+      const ellipseR = 1 / Math.sqrt(
+        (Math.cos(angle) / radiusX) ** 2 + (Math.sin(angle) / radiusY) ** 2
+      );
+      let noise = 1;
+      harmonics.forEach((hn) => {
+        noise += hn.amp * Math.sin(hn.freq * angle + hn.phase);
+      });
+      return ellipseR * Math.max(0.72, noise);
+    };
+  }
+
+  function measureBounds(radiusFn, steps = 160) {
+    let maxAbsX = 0;
+    let maxAbsY = 0;
+    for (let i = 0; i < steps; i++) {
+      const angle = (i / steps) * Math.PI * 2;
+      const r = radiusFn(angle);
+      maxAbsX = Math.max(maxAbsX, Math.abs(Math.cos(angle) * r));
+      maxAbsY = Math.max(maxAbsY, Math.abs(Math.sin(angle) * r));
+    }
+    return { maxAbsX, maxAbsY };
+  }
+
+  const WORLD_ID = 'starter-island';
+  const ISLAND_SEED = mathUtils.hashString(WORLD_ID);
+  const RADIUS_X = 760;
+  const RADIUS_Y = 480;
+  const CLIFF_BAND = 58; // largeur (px monde) de la bande de falaise
+  const WATER_MARGIN = 260; // marge d'eau visible au-delà de la côte
+
+  const islandRadiusFn = makeIslandRadiusFn(ISLAND_SEED, RADIUS_X, RADIUS_Y);
+  const bounds = measureBounds(islandRadiusFn);
+
+  // ------------------------------------------------------------------
+  // Config du monde. Une seule entrée : l'île de départ, un petit
+  // campement cosy (cabane, jardin, feu de camp, ponton) où tous les
+  // joueurs se retrouvent.
+  // ------------------------------------------------------------------
+  const WORLD = {
+    id: WORLD_ID,
+    name: 'Île de départ',
+    subtitle: 'Premier campement',
+    halfWidth: bounds.maxAbsX + WATER_MARGIN,
+    halfHeight: bounds.maxAbsY + WATER_MARGIN,
+    groundColor: 0x8fcf7a,
+    groundColor2: 0x74b862,
+    cliffColor: 0x8a5a34,
+    waterColor: 0x2f7fbf,
+    waterColor2: 0x0f3f66,
+    accentColor: 0xffd76a,
+    // Point d'arrivée : sur le chemin, entre le ponton (au sud) et la
+    // cabane (au nord), comme un joueur qui vient de débarquer.
+    spawn: { x: 0, y: 300 },
+    boundaryRadius: islandRadiusFn,
+    grassRadius(angle) {
+      return islandRadiusFn(angle) - CLIFF_BAND;
+    },
+    decor: [],
+    landmarks: [],
   };
-}
 
-function hashString(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-}
-
-// ----------------------------------------------------------------------
-// Config des zones. Chaque entrée = un lieu du monde. Ajouter une zone =
-// ajouter une entrée ici (le rendu et le peuplement sont génériques).
-// ----------------------------------------------------------------------
-
-export const ZONES = [
-  {
-    id: 'village',
-    name: 'Clairval',
-    subtitle: 'Village',
-    radius: 200,
-    seed: 1,
-    ground: 'grass-meadow',
-    tileWorldSize: 44,
-    groundTint: 0xffffff,
-    fogColor: 0xdcefc9,
-    fogDensity: 0.0011,
-    sunColor: 0xfff2d6,
-    ambientColor: 0xcfe6b0,
-    buildings: [
-      { x: -70, y: 40, w: 34, h: 26, roof: 0xb15c4a, wall: 0xf3e3c2 },
-      { x: 60, y: 55, w: 28, h: 22, roof: 0x6a8f5c, wall: 0xf0e6d2 },
-    ],
-    decor: [
-      { type: 'tree', count: 10 },
-      { type: 'lamp', count: 6 },
-      { type: 'bush', count: 8 },
-    ],
-    flora: [
-      { type: 'flower-red', count: 14 },
-      { type: 'flower-yellow', count: 14 },
-      { type: 'grass-tuft', count: 40 },
-    ],
-    paths: [{ x: -70, y: 40 }, { x: 60, y: 55 }],
-    spawn: { x: 0, y: 30 },
-    portals: [
-      { to: 'forest', pos: { x: -132, y: -84 } },
-      { to: 'meadow', pos: { x: 132, y: -84 } },
-      { to: 'lakeside', pos: { x: 0, y: 150 } },
-    ],
-  },
-  {
-    id: 'forest',
-    name: 'Bois-Tranquille',
-    subtitle: 'Forêt',
-    radius: 185,
-    seed: 2,
-    ground: 'grass-forest',
-    tileWorldSize: 40,
-    groundTint: 0xe6f2df,
-    fogColor: 0x9fc79a,
-    fogDensity: 0.0026,
-    sunColor: 0xdff0c8,
-    ambientColor: 0x8fae7a,
-    weather: 'leaves',
-    decor: [
-      { type: 'tree', count: 26 },
-      { type: 'bush', count: 10 },
-      { type: 'rock', count: 8 },
-      { type: 'mushroom', count: 10 },
-    ],
-    flora: [
-      { type: 'grass-tuft', count: 46 },
-      { type: 'flower-white', count: 8 },
-    ],
-    spawn: { x: 0, y: 50 },
-    portals: [{ to: 'village', pos: { x: 0, y: -128 } }],
-  },
-  {
-    id: 'meadow',
-    name: 'Prés-Fleuris',
-    subtitle: 'Prairie',
-    radius: 195,
-    seed: 3,
-    ground: 'grass-meadow',
-    tileWorldSize: 46,
-    groundTint: 0xffffff,
-    fogColor: 0xe9f2c9,
-    fogDensity: 0.0013,
-    sunColor: 0xfff6d2,
-    ambientColor: 0xd8e6a8,
-    decor: [
-      { type: 'tree', count: 8 },
-      { type: 'bush', count: 6 },
-      { type: 'scarecrow', count: 1 },
-      { type: 'rock', count: 5 },
-    ],
-    flora: [
-      { type: 'flower-red', count: 20 },
-      { type: 'flower-yellow', count: 20 },
-      { type: 'flower-white', count: 16 },
-      { type: 'grass-tuft', count: 50 },
-    ],
-    spawn: { x: 0, y: 50 },
-    portals: [{ to: 'village', pos: { x: 0, y: -128 } }],
-  },
-  {
-    id: 'lakeside',
-    name: 'Bord-de-l’Eau',
-    subtitle: 'Lac',
-    radius: 190,
-    seed: 4,
-    ground: 'grass',
-    tileWorldSize: 42,
-    groundTint: 0xffffff,
-    fogColor: 0xcfe7e6,
-    fogDensity: 0.0014,
-    sunColor: 0xfdf3d2,
-    ambientColor: 0xb9d6d2,
-    water: { cx: 40, cy: 20, radius: 118 },
-    decor: [
-      { type: 'tree', count: 10 },
-      { type: 'bush', count: 8 },
-      { type: 'rock', count: 10 },
-      { type: 'dock', count: 1 },
-    ],
-    flora: [
-      { type: 'grass-tuft', count: 34 },
-      { type: 'flower-white', count: 10 },
-    ],
-    spawn: { x: -70, y: 50 },
-    portals: [{ to: 'village', pos: { x: -100, y: -100 } }],
-  },
-];
-
-export function getZoneById(id) {
-  return ZONES.find((z) => z.id === id) || ZONES[0];
-}
-
-function groundHeight(x, y, radius, seed) {
-  return window.Game.mathUtils.zoneGroundHeight(x, y, radius, seed);
-}
-
-// ----------------------------------------------------------------------
-// Sol : disque bas-poly texturé (UV = position monde / tileWorldSize),
-// relief doux via zoneGroundHeight (une seule formule partagée avec
-// décor/portails/avatar/caméra — voir game/mathUtils.js).
-// ----------------------------------------------------------------------
-
-function buildTerrainMesh({ radius, seed, texture, tileWorldSize, tint }) {
-  const rings = 16;
-  const segments = 44;
-  const gh = (x, y) => groundHeight(x, y, radius, seed);
-
-  const positions = [0, gh(0, 0), 0];
-  const uvs = [0, 0];
-
-  for (let ring = 1; ring <= rings; ring++) {
-    const r = (ring / rings) * radius;
-    for (let seg = 0; seg < segments; seg++) {
-      const a = (seg / segments) * Math.PI * 2;
-      const x = Math.cos(a) * r;
-      const z = Math.sin(a) * r;
-      positions.push(x, gh(x, z), z);
-      uvs.push(x / tileWorldSize, z / tileWorldSize);
-    }
+  /**
+   * Contraint un point (x, y) à l'intérieur du tapis d'herbe de l'île
+   * (jamais sur la falaise ni dans l'eau). Remplace l'ancien
+   * clampToRect : la limite dépend de l'angle (côte irrégulière), pas
+   * d'un simple rectangle.
+   */
+  function clampToIsland(x, y, margin = 0) {
+    const angle = Math.atan2(y, x);
+    const maxR = WORLD.grassRadius(angle) - margin;
+    const dist = Math.hypot(x, y);
+    if (maxR <= 0 || dist <= maxR) return { x, y };
+    const scale = maxR / dist;
+    return { x: x * scale, y: y * scale };
   }
 
-  const indices = [];
-  for (let seg = 0; seg < segments; seg++) {
-    indices.push(0, 1 + seg, 1 + ((seg + 1) % segments));
-  }
-  for (let ring = 1; ring < rings; ring++) {
-    const ringStart = 1 + (ring - 1) * segments;
-    const nextStart = 1 + ring * segments;
-    for (let seg = 0; seg < segments; seg++) {
-      const a = ringStart + seg;
-      const b = ringStart + ((seg + 1) % segments);
-      const c = nextStart + seg;
-      const d = nextStart + ((seg + 1) % segments);
-      indices.push(a, c, b, b, c, d);
-    }
+  /**
+   * Résout un déplacement (prevX, prevY) -> (nextX, nextY) en tenant
+   * compte du contour de l'île (clampToIsland).
+   */
+  function resolvePlayerMove(prevX, prevY, nextX, nextY, margin = 0) {
+    return clampToIsland(nextX, nextY, margin);
   }
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  geo.setIndex(indices);
-  geo.computeVertexNormals();
-
-  const mat = new THREE.MeshStandardMaterial({
-    map: texture || null,
-    color: tint ?? 0xffffff,
-    flatShading: true,
-    roughness: 0.92,
-    side: THREE.DoubleSide,
-  });
-  return new THREE.Mesh(geo, mat);
-}
-
-function buildPathPatch(x, y, gY, texture, r = 15) {
-  const mesh = new THREE.Mesh(
-    new THREE.CircleGeometry(r, 16),
-    new THREE.MeshStandardMaterial({ map: texture || null, flatShading: true, roughness: 0.95, transparent: true, opacity: 0.92 })
-  );
-  mesh.rotation.x = -Math.PI / 2;
-  mesh.position.set(x, gY + 0.08, y);
-  return mesh;
-}
-
-function buildWater(zone, assets) {
-  const frames = assets.getTilesetTexture('water');
-  const def = assets.getTilesetDef('water');
-  const tileWorldSize = def?.tileWorldSize || 64;
-  const { cx, cy, radius } = zone.water;
-  const mesh = new THREE.Mesh(
-    new THREE.CircleGeometry(radius, 40),
-    new THREE.MeshStandardMaterial({
-      map: Array.isArray(frames) ? frames[0] : frames,
-      transparent: true,
-      opacity: 0.92,
-      roughness: 0.25,
-      metalness: 0.05,
-    })
-  );
-  mesh.rotation.x = -Math.PI / 2;
-  const gY = groundHeight(cx, cy, zone.radius, zone.seed);
-  mesh.position.set(cx, gY - 0.6, cy);
-  mesh.userData.isWater = true;
-  mesh.userData.frames = Array.isArray(frames) ? frames : [frames];
-  mesh.userData.fps = def?.fps || 2;
-  // ré-échelle l'UV pour que la texture d'eau se répète à bonne taille
-  const uvAttr = mesh.geometry.attributes.uv;
-  const posAttr = mesh.geometry.attributes.position;
-  for (let i = 0; i < uvAttr.count; i++) {
-    uvAttr.setXY(i, posAttr.getX(i) / tileWorldSize, posAttr.getY(i) / tileWorldSize);
-  }
-  uvAttr.needsUpdate = true;
-  return mesh;
-}
-
-// ----------------------------------------------------------------------
-// Décor 3D léger : primitives simples (peu de segments), esprit low
-// poly peint à la main plutôt que du photoréalisme.
-// ----------------------------------------------------------------------
-
-function flatMat(color, opts = {}) {
-  return new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: opts.roughness ?? 0.85, metalness: opts.metalness ?? 0.04, ...opts });
-}
-
-function makeTree(rng) {
-  const g = new THREE.Group();
-  const trunkH = 6 + rng() * 3;
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 1, trunkH, 6), flatMat(0x8a6a45));
-  trunk.position.y = trunkH / 2;
-  g.add(trunk);
-  const leafColors = [0x6fae5a, 0x7fc06a, 0x5b9a49];
-  const tiers = 2 + Math.floor(rng() * 2);
-  for (let i = 0; i < tiers; i++) {
-    const size = 5.4 - i * 1.2 + rng() * 0.6;
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(size, 5.2, 7), flatMat(leafColors[i % leafColors.length]));
-    cone.position.y = trunkH + i * 3.2 + 2.4;
-    g.add(cone);
-  }
-  g.userData.canopy = g.children.slice(1);
-  return g;
-}
-
-function makeBush(rng) {
-  const g = new THREE.Group();
-  const clumps = 3 + Math.floor(rng() * 2);
-  for (let i = 0; i < clumps; i++) {
-    const s = 1.4 + rng() * 1;
-    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), flatMat(0x6fae5a));
-    m.position.set((rng() - 0.5) * 2.4, s * 0.7, (rng() - 0.5) * 2.4);
-    g.add(m);
-  }
-  return g;
-}
-
-function makeRock(rng) {
-  const s = 1.2 + rng() * 2.2;
-  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), flatMat(0x9a9a92, { roughness: 0.95 }));
-  m.scale.y = 0.6 + rng() * 0.4;
-  m.rotation.y = rng() * Math.PI;
-  return m;
-}
-
-function makeMushroom(rng) {
-  const g = new THREE.Group();
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 1.8, 6), flatMat(0xf3e6d0));
-  stem.position.y = 0.9;
-  g.add(stem);
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(1.3, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), flatMat(0xd0554a));
-  cap.position.y = 1.8;
-  g.add(cap);
-  g.scale.setScalar(0.8 + rng() * 0.8);
-  return g;
-}
-
-function makeLamp(rng) {
-  const g = new THREE.Group();
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.38, 6.5, 6), flatMat(0x5a4a3a));
-  post.position.y = 3.25;
-  g.add(post);
-  const globe = new THREE.Mesh(new THREE.SphereGeometry(1.0, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffe4a3, transparent: true, opacity: 0.95 }));
-  globe.position.y = 6.8;
-  g.add(globe);
-  const light = new THREE.PointLight(0xffcf87, 1.1, 18);
-  light.position.y = 6.8;
-  g.add(light);
-  return g;
-}
-
-function makeScarecrow(rng) {
-  const g = new THREE.Group();
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 8, 5), flatMat(0x8a6a45));
-  post.position.y = 4;
-  g.add(post);
-  const arms = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 5.5, 5), flatMat(0x8a6a45));
-  arms.rotation.z = Math.PI / 2;
-  arms.position.y = 6.2;
-  g.add(arms);
-  const body = new THREE.Mesh(new THREE.SphereGeometry(1.3, 8, 8), flatMat(0xd9c48a));
-  body.position.y = 6.4;
-  g.add(body);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.9, 8, 8), flatMat(0xe8d2a0));
-  head.position.y = 8.2;
-  g.add(head);
-  const hat = new THREE.Mesh(new THREE.ConeGeometry(1.1, 1.2, 8), flatMat(0x4a3a2e));
-  hat.position.y = 8.9;
-  g.add(hat);
-  return g;
-}
-
-function makeDock() {
-  const g = new THREE.Group();
-  const plankMat = flatMat(0x9a7a52, { roughness: 0.9 });
-  for (let i = 0; i < 6; i++) {
-    const plank = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.5, 2.6), plankMat);
-    plank.position.set(0, 0.5, i * 2.7);
-    g.add(plank);
-  }
-  return g;
-}
-
-function makeBuilding(cfg) {
-  const g = new THREE.Group();
-  const wallMat = flatMat(cfg.wall || 0xf0e6d2, { roughness: 0.9 });
-  const roofMat = flatMat(cfg.roof || 0xb15c4a, { roughness: 0.8 });
-  const h = 12;
-  const wall = new THREE.Mesh(new THREE.BoxGeometry(cfg.w, h, cfg.h), wallMat);
-  wall.position.y = h / 2;
-  g.add(wall);
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(cfg.w, cfg.h) * 0.72, 8, 4), roofMat);
-  roof.rotation.y = Math.PI / 4;
-  roof.position.y = h + 4;
-  g.add(roof);
-  const door = new THREE.Mesh(new THREE.BoxGeometry(3, 5.4, 0.4), flatMat(0x5a3f2c));
-  door.position.set(0, 2.7, cfg.h / 2 + 0.21);
-  g.add(door);
-  const winMat = flatMat(0xbfe6f2, { roughness: 0.4, metalness: 0.1 });
-  [-1, 1].forEach((side) => {
-    const win = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.2, 0.3), winMat);
-    win.position.set(side * cfg.w * 0.28, 6.6, cfg.h / 2 + 0.2);
-    g.add(win);
-  });
-  g.position.set(cfg.x, 0, cfg.y);
-  return g;
-}
-
-const DECOR_FACTORIES = {
-  tree: makeTree,
-  bush: makeBush,
-  rock: makeRock,
-  mushroom: makeMushroom,
-  lamp: makeLamp,
-  scarecrow: makeScarecrow,
-  dock: makeDock,
-};
-
-// ----------------------------------------------------------------------
-// Flore 2D (billboards) : petites cartes texturées avec le sous-rect
-// correspondant de tilesets/flora.png (voir AssetManifest.getFlora()).
-// C'est ici le "mélange sprites 2D / décor 3D léger" demandé.
-// ----------------------------------------------------------------------
-
-function makeFloraBillboard(kind, floraTex, floraDef) {
-  const names = Object.keys(floraDef.cells);
-  const idx = floraDef.cells[kind] ?? 0;
-  const cols = names.length;
-
-  const tex = floraTex.clone();
-  tex.needsUpdate = true;
-  tex.repeat.set(1 / cols, 1);
-  tex.offset.set(idx / cols, 0);
-
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
-  const sprite = new THREE.Sprite(mat);
-  const size = kind === 'bush' ? 6 : 4.2;
-  sprite.scale.set(size, size, 1);
-  sprite.center.set(0.5, 0);
-  return sprite;
-}
-
-// ----------------------------------------------------------------------
-
-function buildPortal(portalConfig, zone) {
-  const g = new THREE.Group();
-  const gY = groundHeight(portalConfig.pos.x, portalConfig.pos.y, zone.radius, zone.seed);
-  g.position.set(portalConfig.pos.x, gY, portalConfig.pos.y);
-
-  // Arche de bois fleurie plutôt qu'un anneau cosmique — même mécanique
-  // (proximité = voyage), habillage "sentier de campagne".
-  const postMat = flatMat(0x8a6a45);
-  [-3.4, 3.4].forEach((side) => {
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 9, 6), postMat);
-    post.position.set(side, 4.5, 0);
-    g.add(post);
-  });
-  const beam = new THREE.Mesh(new THREE.BoxGeometry(8.2, 1, 1), postMat);
-  beam.position.y = 9;
-  g.add(beam);
-  [-2, 0, 2].forEach((dx) => {
-    const bloom = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 8), flatMat(0xe07a86));
-    bloom.position.set(dx, 9.6, 0);
-    g.add(bloom);
-  });
-  const glow = new THREE.Mesh(
-    new THREE.CircleGeometry(3.2, 20),
-    new THREE.MeshBasicMaterial({ color: 0xffe4a3, transparent: true, opacity: 0.28, side: THREE.DoubleSide })
-  );
-  glow.rotation.x = -Math.PI / 2;
-  glow.position.y = 0.15;
-  g.add(glow);
-  const light = new THREE.PointLight(0xffe4a3, 1, 20);
-  light.position.y = 6;
-  g.add(light);
-
-  return g;
-}
-
-/**
- * Construit le groupe complet d'une zone : sol, eau (si présente),
- * chemins, décor 3D + flore 2D placés de façon déterministe, bâtiments,
- * portails. Retourne aussi les listes utiles à la boucle de jeu
- * (portails pour la détection de proximité, éléments "balançables" pour
- * l'animation de vent, l'eau pour l'anim de cycle de frames).
- */
-export function buildZoneGroup(zone, assets) {
-  const group = new THREE.Group();
-  group.name = `zone:${zone.id}`;
-
-  const groundTex = assets.getTilesetTexture(zone.ground);
-  group.add(buildTerrainMesh({ radius: zone.radius, seed: zone.seed, texture: groundTex, tileWorldSize: zone.tileWorldSize, tint: zone.groundTint }));
-
-  const waterMeshes = [];
-  if (zone.water) {
-    const water = buildWater(zone, assets);
-    group.add(water);
-    waterMeshes.push(water);
-  }
-
-  const pathTex = assets.getTilesetTexture('dirt-path');
-  (zone.paths || []).forEach((p) => {
-    const gY = groundHeight(p.x, p.y, zone.radius, zone.seed);
-    group.add(buildPathPatch(p.x, p.y, gY, pathTex, 17));
-    const gY0 = groundHeight(zone.spawn.x, zone.spawn.y, zone.radius, zone.seed);
-    group.add(buildPathPatch((p.x + zone.spawn.x) / 2, (p.y + zone.spawn.y) / 2, (gY + gY0) / 2, pathTex, 14));
-  });
-
-  const rng = mulberry32(hashString(zone.id) + 1);
-  const swayItems = [];
-  const decorMinRadius = 20;
-
-  (zone.decor || []).forEach(({ type, count }) => {
-    const factory = DECOR_FACTORIES[type];
-    if (!factory) return;
-    for (let i = 0; i < count; i++) {
-      const angle = rng() * Math.PI * 2;
-      const dist = decorMinRadius + rng() * (zone.radius * 0.86 - decorMinRadius);
-      const x = Math.cos(angle) * dist;
-      const z = Math.sin(angle) * dist;
-      if (zone.water && Math.hypot(x - zone.water.cx, z - zone.water.cy) < zone.water.radius + 8) continue;
-      const item = factory(rng);
-      const gY = groundHeight(x, z, zone.radius, zone.seed);
-      item.position.set(x, gY, z);
-      item.rotation.y = rng() * Math.PI * 2;
-      const scale = 0.85 + rng() * 0.35;
-      item.scale.setScalar(scale);
-      group.add(item);
-      if (type === 'tree' || type === 'bush') {
-        swayItems.push({ obj: item, phase: rng() * Math.PI * 2, speed: 0.7 + rng() * 0.4, amount: type === 'tree' ? 0.045 : 0.07 });
+  // Icône = fonction(ctx, w, h, rng, accent) qui peint sur un canvas w×h
+  // (origine en haut à gauche, base de l'objet posée près de y=h-6).
+  const ICONS = {
+    tree(ctx, w, h, rng) {
+      const cx = w / 2;
+      const trunkH = h * 0.28;
+      fillPath(ctx, '#7a5232', shade('#7a5232', -0.35), 4, () => {
+        ctx.rect(cx - w * 0.07, h - 6 - trunkH, w * 0.14, trunkH);
+      });
+      const leafColors = ['#5b9a49', '#6fae5a', '#7fc06a'];
+      const tiers = 3;
+      const topY = h - 6 - trunkH;
+      for (let i = tiers - 1; i >= 0; i--) {
+        const cy = topY - i * (h * 0.19);
+        const r = w * 0.42 - i * w * 0.09;
+        fillPath(ctx, leafColors[i % leafColors.length], 'rgba(0,0,0,0.3)', 4, () => {
+          ctx.moveTo(cx, cy - r * 1.35);
+          ctx.lineTo(cx - r, cy + r * 0.35);
+          ctx.quadraticCurveTo(cx, cy + r * 0.6, cx + r, cy + r * 0.35);
+        });
       }
-    }
-  });
-
-  const { texture: floraTex, def: floraDef } = assets.getFlora();
-  if (floraTex && floraDef) {
-    (zone.flora || []).forEach(({ type, count }) => {
-      for (let i = 0; i < count; i++) {
-        const angle = rng() * Math.PI * 2;
-        const dist = decorMinRadius * 0.6 + rng() * (zone.radius * 0.9 - decorMinRadius * 0.6);
-        const x = Math.cos(angle) * dist;
-        const z = Math.sin(angle) * dist;
-        if (zone.water && Math.hypot(x - zone.water.cx, z - zone.water.cy) < zone.water.radius + 4) continue;
-        const sprite = makeFloraBillboard(type, floraTex, floraDef);
-        const gY = groundHeight(x, z, zone.radius, zone.seed);
-        sprite.position.set(x, gY, z);
-        group.add(sprite);
-        swayItems.push({ obj: sprite, phase: rng() * Math.PI * 2, speed: 1.4 + rng() * 0.6, amount: 0.12, isFlora: true });
+    },
+    appleTree(ctx, w, h, rng) {
+      ICONS.tree(ctx, w, h, rng);
+      const cx = w / 2;
+      const trunkH = h * 0.28;
+      const topY = h - 6 - trunkH;
+      const appleColors = ['#e2542f', '#f2712f'];
+      for (let i = 0; i < 6; i++) {
+        const tier = Math.floor(rng() * 3);
+        const cy = topY - tier * (h * 0.19) + (rng() - 0.5) * h * 0.08;
+        const r = w * 0.42 - tier * w * 0.09;
+        const a = rng() * Math.PI * 2;
+        const px = cx + Math.cos(a) * r * 0.7;
+        const py = cy + Math.sin(a) * r * 0.45;
+        fillPath(ctx, appleColors[i % 2], 'rgba(0,0,0,0.3)', 1.5, () => {
+          ctx.arc(px, py, w * 0.045, 0, Math.PI * 2);
+        });
       }
+    },
+    bush(ctx, w, h, rng, accent, color = '#6fae5a') {
+      const cx = w / 2, base = h - 6;
+      const clumps = 4;
+      for (let i = 0; i < clumps; i++) {
+        const s = w * (0.22 + rng() * 0.08);
+        const px = cx + (rng() - 0.5) * w * 0.5;
+        const py = base - s * 0.7 - rng() * h * 0.08;
+        fillPath(ctx, shade(color, (rng() - 0.5) * 0.15), 'rgba(0,0,0,0.28)', 3, () => {
+          ctx.arc(px, py, s, 0, Math.PI * 2);
+        });
+      }
+    },
+    rock(ctx, w, h, rng) {
+      const cx = w / 2, base = h - 6;
+      const rw = w * 0.42, rh = h * 0.3;
+      const pts = 7;
+      fillPath(ctx, '#8a8a92', 'rgba(0,0,0,0.32)', 4, () => {
+        for (let i = 0; i < pts; i++) {
+          const a = (i / pts) * Math.PI * 2;
+          const rr = 0.75 + rng() * 0.3;
+          const px = cx + Math.cos(a) * rw * rr;
+          const py = base - rh + Math.sin(a) * rh * rr * 0.7;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+      });
+      fillPath(ctx, 'rgba(255,255,255,0.18)', null, 0, () => {
+        ctx.ellipse(cx - rw * 0.2, base - rh * 1.3, rw * 0.3, rh * 0.35, 0, 0, Math.PI * 2);
+      });
+    },
+    mushroom(ctx, w, h, rng, accent, color = '#ff8a7a') {
+      const cx = w / 2, base = h - 6;
+      const stemH = h * 0.32;
+      fillPath(ctx, '#f3e6d0', shade('#f3e6d0', -0.25), 3, () => {
+        ctx.roundRect(cx - w * 0.09, base - stemH, w * 0.18, stemH, w * 0.06);
+      });
+      const capW = w * 0.4, capH = h * 0.28;
+      fillPath(ctx, color, 'rgba(0,0,0,0.3)', 4, () => {
+        ctx.ellipse(cx, base - stemH, capW, capH, 0, Math.PI, 0);
+      });
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      [[-0.4, 0.35], [0.15, 0.15], [0.45, 0.4]].forEach(([dx, dy]) => {
+        ctx.beginPath();
+        ctx.arc(cx + dx * capW, base - stemH - dy * capH, capW * 0.09, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    },
+    flower(ctx, w, h, rng) {
+      const cx = w / 2, base = h - 4;
+      const stemH = h * 0.5;
+      ctx.strokeStyle = '#4f8a44';
+      ctx.lineWidth = Math.max(2, w * 0.05);
+      ctx.beginPath();
+      ctx.moveTo(cx, base);
+      ctx.lineTo(cx, base - stemH);
+      ctx.stroke();
+      const palette = ['#ffffff', '#ffd76a', '#ff9ec4', '#ffb347'];
+      const color = palette[Math.floor(rng() * palette.length)];
+      const petalR = w * 0.24;
+      const petals = 5;
+      for (let i = 0; i < petals; i++) {
+        const a = (i / petals) * Math.PI * 2;
+        const px = cx + Math.cos(a) * petalR * 0.9;
+        const py = base - stemH + Math.sin(a) * petalR * 0.9;
+        fillPath(ctx, color, 'rgba(0,0,0,0.2)', 1.5, () => {
+          ctx.arc(px, py, petalR * 0.55, 0, Math.PI * 2);
+        });
+      }
+      fillPath(ctx, '#ffd76a', null, 0, () => {
+        ctx.arc(cx, base - stemH, petalR * 0.4, 0, Math.PI * 2);
+      });
+    },
+    stump(ctx, w, h, rng) {
+      const cx = w / 2, base = h - 6;
+      const rw = w * 0.36, rh = h * 0.22;
+      fillPath(ctx, '#8a6339', shade('#8a6339', -0.35), 3, () => {
+        ctx.rect(cx - rw, base - rh * 1.6, rw * 2, rh * 1.6);
+      });
+      fillPath(ctx, '#c99a63', shade('#c99a63', -0.2), 3, () => {
+        ctx.ellipse(cx, base - rh * 1.6, rw, rh, 0, 0, Math.PI * 2);
+      });
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 2;
+      for (let r = rw * 0.25; r < rw; r += rw * 0.28) {
+        ctx.beginPath();
+        ctx.ellipse(cx, base - rh * 1.6, r, r * (rh / rw), 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    },
+    barrel(ctx, w, h, rng) {
+      const cx = w / 2, base = h - 6;
+      const bw = w * 0.5, bh = h * 0.6;
+      fillPath(ctx, '#a9743f', shade('#a9743f', -0.3), 3, () => {
+        ctx.roundRect(cx - bw / 2, base - bh, bw, bh, bw * 0.18);
+      });
+      ctx.strokeStyle = shade('#a9743f', -0.5);
+      ctx.lineWidth = Math.max(2, w * 0.045);
+      [0.22, 0.5, 0.78].forEach((f) => {
+        ctx.beginPath();
+        ctx.moveTo(cx - bw / 2, base - bh * f);
+        ctx.lineTo(cx + bw / 2, base - bh * f);
+        ctx.stroke();
+      });
+    },
+    signpost(ctx, w, h, rng) {
+      const cx = w / 2, base = h - 6;
+      const postH = h * 0.7;
+      fillPath(ctx, '#7a5232', shade('#7a5232', -0.3), 3, () => {
+        ctx.rect(cx - w * 0.045, base - postH, w * 0.09, postH);
+      });
+      const signW = w * 0.62, signH = h * 0.16;
+      [0, 1].forEach((i) => {
+        const sy = base - postH * 0.85 + i * signH * 1.4;
+        const dir = i === 0 ? 1 : -1;
+        fillPath(ctx, '#c99a63', shade('#c99a63', -0.3), 3, () => {
+          ctx.moveTo(cx, sy);
+          ctx.lineTo(cx + dir * signW, sy - signH * 0.15);
+          ctx.lineTo(cx + dir * signW, sy + signH);
+          ctx.lineTo(cx, sy + signH * 0.85);
+        });
+      });
+    },
+    campfire(ctx, w, h, rng) {
+      const cx = w / 2, base = h - 6;
+      const stones = 8;
+      for (let i = 0; i < stones; i++) {
+        const a = (i / stones) * Math.PI * 2;
+        const px = cx + Math.cos(a) * w * 0.36;
+        const py = base - h * 0.06 + Math.sin(a) * h * 0.09;
+        fillPath(ctx, '#9a9aa0', 'rgba(0,0,0,0.3)', 2, () => {
+          ctx.arc(px, py, w * 0.06, 0, Math.PI * 2);
+        });
+      }
+      [-0.35, 0.35].forEach((rot) => {
+        ctx.save();
+        ctx.translate(cx, base - h * 0.1);
+        ctx.rotate(rot);
+        fillPath(ctx, '#7a5232', shade('#7a5232', -0.3), 2, () => {
+          ctx.roundRect(-w * 0.28, -w * 0.045, w * 0.56, w * 0.09, w * 0.04);
+        });
+        ctx.restore();
+      });
+      const glow = ctx.createRadialGradient(cx, base - h * 0.22, 0, cx, base - h * 0.22, w * 0.6);
+      glow.addColorStop(0, 'rgba(255,190,90,0.55)');
+      glow.addColorStop(1, 'rgba(255,190,90,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(cx, base - h * 0.22, w * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+      const flameGrad = ctx.createLinearGradient(0, base, 0, base - h * 0.4);
+      flameGrad.addColorStop(0, '#ff5a2e');
+      flameGrad.addColorStop(0.6, '#ffb23e');
+      flameGrad.addColorStop(1, '#fff3b0');
+      fillPath(ctx, flameGrad, null, 0, () => {
+        ctx.moveTo(cx, base - h * 0.02);
+        ctx.quadraticCurveTo(cx - w * 0.16, base - h * 0.2, cx - w * 0.05, base - h * 0.32);
+        ctx.quadraticCurveTo(cx, base - h * 0.26, cx + w * 0.03, base - h * 0.38);
+        ctx.quadraticCurveTo(cx + w * 0.1, base - h * 0.22, cx + w * 0.16, base - h * 0.2);
+        ctx.quadraticCurveTo(cx + w * 0.06, base - h * 0.14, cx, base - h * 0.02);
+      });
+    },
+    gardenPatch(ctx, w, h, rng) {
+      const left = w * 0.06, top = h * 0.1, gw = w * 0.88, gh = h * 0.7;
+      fillPath(ctx, '#6b4a30', shade('#6b4a30', -0.25), 3, () => {
+        ctx.rect(left, top, gw, gh);
+      });
+      const rows = 4, plants = 6;
+      for (let r = 0; r < rows; r++) {
+        const ry = top + gh * ((r + 0.5) / rows);
+        for (let p = 0; p < plants; p++) {
+          const px = left + gw * ((p + 0.5) / plants);
+          fillPath(ctx, '#5f9a4c', shade('#5f9a4c', -0.2), 1.5, () => {
+            ctx.arc(px, ry, gw * 0.028, 0, Math.PI * 2);
+          });
+        }
+      }
+      ctx.strokeStyle = '#8a6339';
+      ctx.lineWidth = Math.max(3, w * 0.02);
+      ctx.strokeRect(left, top, gw, gh);
+      const postGap = gw / 7;
+      for (let i = 0; i <= 7; i++) {
+        const px = left + i * postGap;
+        fillPath(ctx, '#7a5232', null, 0, () => {
+          ctx.rect(px - w * 0.012, top - h * 0.03, w * 0.024, h * 0.06);
+        });
+      }
+    },
+    dock(ctx, w, h, rng) {
+      const cx = w / 2;
+      const plankW = w * 0.78;
+      const top = h * 0.04, bottom = h * 0.96;
+      fillPath(ctx, '#a9743f', shade('#a9743f', -0.3), 3, () => {
+        ctx.rect(cx - plankW / 2, top, plankW, bottom - top);
+      });
+      ctx.strokeStyle = shade('#a9743f', -0.45);
+      ctx.lineWidth = Math.max(2, w * 0.03);
+      const planks = 8;
+      for (let i = 1; i < planks; i++) {
+        const py = top + (bottom - top) * (i / planks);
+        ctx.beginPath();
+        ctx.moveTo(cx - plankW / 2, py);
+        ctx.lineTo(cx + plankW / 2, py);
+        ctx.stroke();
+      }
+      [-1, 1].forEach((side) => {
+        for (let f = 0.08; f < 0.98; f += 0.32) {
+          const py = top + (bottom - top) * f;
+          fillPath(ctx, '#7a5232', shade('#7a5232', -0.3), 2, () => {
+            ctx.rect(cx + side * plankW / 2 - w * 0.02, py, w * 0.045, h * 0.09);
+          });
+        }
+      });
+    },
+    boat(ctx, w, h, rng) {
+      const cx = w / 2, cy = h * 0.55;
+      fillPath(ctx, '#8a5a34', shade('#8a5a34', -0.35), 3, () => {
+        ctx.ellipse(cx, cy, w * 0.42, h * 0.32, 0, 0, Math.PI * 2);
+      });
+      fillPath(ctx, '#c99a63', shade('#c99a63', -0.2), 2, () => {
+        ctx.ellipse(cx, cy, w * 0.3, h * 0.2, 0, 0, Math.PI * 2);
+      });
+      fillPath(ctx, '#6b4a30', null, 0, () => {
+        ctx.rect(cx - w * 0.03, cy - h * 0.05, w * 0.06, h * 0.05);
+      });
+    },
+    lamp(ctx, w, h, rng, accent) {
+      const cx = w / 2, base = h - 6;
+      const postH = h * 0.58;
+      fillPath(ctx, '#6b5a45', shade('#6b5a45', -0.3), 3, () => {
+        ctx.roundRect(cx - w * 0.05, base - postH, w * 0.1, postH, w * 0.04);
+      });
+      const color = hex(accent || 0xffd76a);
+      const glow = ctx.createRadialGradient(cx, base - postH, 0, cx, base - postH, w * 0.5);
+      glow.addColorStop(0, 'rgba(255,255,255,0.55)');
+      glow.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(cx, base - postH, w * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      fillPath(ctx, color, 'rgba(0,0,0,0.25)', 3, () => {
+        ctx.arc(cx, base - postH, w * 0.16, 0, Math.PI * 2);
+      });
+    },
+    cabin(ctx, w, h, rng) {
+      const cx = w / 2, base = h - 6;
+      const wallW = w * 0.62, wallH = h * 0.36;
+      const wallTop = base - wallH;
+      fillPath(ctx, '#a9743f', shade('#a9743f', -0.35), 4, () => {
+        ctx.rect(cx - wallW / 2, wallTop, wallW, wallH);
+      });
+      const doorW = wallW * 0.22, doorH = wallH * 0.62;
+      fillPath(ctx, '#3f7a4a', shade('#3f7a4a', -0.35), 3, () => {
+        ctx.roundRect(cx - doorW / 2, base - doorH, doorW, doorH, doorW * 0.25);
+      });
+      [-1, 1].forEach((side) => {
+        fillPath(ctx, '#bfe6f2', shade('#bfe6f2', -0.3), 3, () => {
+          ctx.rect(cx + side * wallW * 0.3 - wallW * 0.08, wallTop + wallH * 0.28, wallW * 0.16, wallW * 0.16);
+        });
+      });
+      const roofW = wallW * 1.18, roofH = h * 0.34;
+      fillPath(ctx, '#4f8a5c', shade('#4f8a5c', -0.4), 4, () => {
+        ctx.moveTo(cx, wallTop - roofH);
+        ctx.lineTo(cx - roofW / 2, wallTop + roofH * 0.12);
+        ctx.lineTo(cx + roofW / 2, wallTop + roofH * 0.12);
+      });
+      const chimW = wallW * 0.08;
+      fillPath(ctx, '#8a6339', shade('#8a6339', -0.3), 2, () => {
+        ctx.rect(cx + roofW * 0.22, wallTop - roofH * 0.55, chimW, roofH * 0.7);
+      });
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      [0, 1, 2].forEach((i) => {
+        ctx.beginPath();
+        ctx.arc(cx + roofW * 0.22 + chimW / 2 + i * 3, wallTop - roofH * 0.55 - 10 - i * 14, 6 + i * 2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    },
+  };
+
+  // Taille "monde" (largeur, hauteur) en pixels de chaque type de décor.
+  const DECOR_SIZE = {
+    tree: [96, 152], appleTree: [96, 152], bush: [44, 36],
+    rock: [36, 24], mushroom: [27, 32], flower: [22, 34], stump: [46, 30],
+    barrel: [30, 40], signpost: [46, 92], campfire: [76, 56],
+    gardenPatch: [200, 150], dock: [90, 260], boat: [70, 50],
+    lamp: [29, 72], cabin: [230, 260],
+  };
+
+  // Résolution du canvas de dessin de chaque icône = sa taille "monde"
+  // multipliée par ce facteur (netteté), avec le même ratio largeur/
+  // hauteur que le type concerné (évite l'écrasement d'un asset large et
+  // bas, comme le ponton, dans un canvas pensé pour un objet haut et
+  // étroit, comme un arbre).
+  const ICON_RES_SCALE = 2.4;
+
+  function buildDecorCanvas(type, rng, accentColor) {
+    const draw = ICONS[type];
+    if (!draw) return null;
+    const size = DECOR_SIZE[type] || [40, 50];
+    const w = Math.max(8, Math.round(size[0] * ICON_RES_SCALE));
+    const h = Math.max(8, Math.round(size[1] * ICON_RES_SCALE));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    draw(ctx, w, h, rng, accentColor);
+    return canvas;
+  }
+
+  // ------------------------------------------------------------------
+  // Sol : eau tout autour + île (falaise + écume + herbe), peint une
+  // seule fois sur un grand canvas, posé tel quel par WorldRenderer.
+  // ------------------------------------------------------------------
+  function buildGroundCanvas(world) {
+    const w = world.halfWidth * 2;
+    const h = world.halfHeight * 2;
+    const cx = world.halfWidth;
+    const cy = world.halfHeight;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+
+    // Eau (fond), dégradé profond -> clair vers l'île.
+    const waterGrad = ctx.createRadialGradient(cx, cy, Math.min(w, h) * 0.18, cx, cy, Math.max(w, h) * 0.72);
+    waterGrad.addColorStop(0, hex(world.waterColor));
+    waterGrad.addColorStop(1, hex(world.waterColor2));
+    ctx.fillStyle = waterGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    // Petits reflets sur l'eau (traits clairs épars, purement décoratifs).
+    const wrng = mathUtils.mulberry32(mathUtils.hashString(world.id) + 7);
+    ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+    for (let i = 0; i < 70; i++) {
+      const px = wrng() * w, py = wrng() * h, len = 14 + wrng() * 26;
+      ctx.lineWidth = 1 + wrng() * 1.5;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + len, py);
+      ctx.stroke();
+    }
+
+    // Contours de la côte (falaise) et de l'herbe, échantillonnés une
+    // fois pour toutes (mêmes points réutilisés pour le dessin ET pour
+    // la bande de texture de la falaise).
+    const steps = 160;
+    const cliffPts = [];
+    const grassPts = [];
+    for (let i = 0; i <= steps; i++) {
+      const angle = (i / steps) * Math.PI * 2;
+      const rc = world.boundaryRadius(angle);
+      const rg = world.grassRadius(angle);
+      cliffPts.push([cx + Math.cos(angle) * rc, cy + Math.sin(angle) * rc]);
+      grassPts.push([cx + Math.cos(angle) * rg, cy + Math.sin(angle) * rg]);
+    }
+    const pathFrom = (pts) => {
+      ctx.beginPath();
+      pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
+      ctx.closePath();
+    };
+
+    // Écume : liseré blanc translucide tout le long de la côte.
+    pathFrom(cliffPts);
+    ctx.save();
+    ctx.lineWidth = 16;
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.stroke();
+    ctx.restore();
+
+    // Falaise (terre).
+    pathFrom(cliffPts);
+    ctx.fillStyle = hex(world.cliffColor);
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = shade(world.cliffColor, -0.35);
+    ctx.stroke();
+
+    // Petites strates sur la bande de falaise (texture "terrasses").
+    ctx.save();
+    pathFrom(cliffPts);
+    ctx.clip();
+    ctx.strokeStyle = shade(world.cliffColor, -0.22);
+    ctx.lineWidth = 3;
+    for (let i = 0; i < cliffPts.length; i += 3) {
+      const [x1, y1] = cliffPts[i];
+      const [x2, y2] = grassPts[i];
+      ctx.beginPath();
+      ctx.moveTo(mix(x1, x2, 0.3), mix(y1, y2, 0.3));
+      ctx.lineTo(mix(x1, x2, 0.55), mix(y1, y2, 0.55));
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Herbe (sommet de l'île).
+    pathFrom(grassPts);
+    const grassGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(world.halfWidth, world.halfHeight));
+    grassGrad.addColorStop(0, hex(world.groundColor));
+    grassGrad.addColorStop(1, hex(world.groundColor2));
+    ctx.fillStyle = grassGrad;
+    ctx.fill();
+
+    // Tapis d'herbe peint à la main (pas une texture répétée), contenu
+    // strictement dans l'île grâce au clip.
+    ctx.save();
+    pathFrom(grassPts);
+    ctx.clip();
+    const rng = mathUtils.mulberry32(mathUtils.hashString(world.id));
+    const spots = Math.round((w * h) / 4200);
+    for (let i = 0; i < spots; i++) {
+      ctx.globalAlpha = 0.05 + rng() * 0.06;
+      ctx.fillStyle = rng() > 0.5 ? '#ffffff' : '#000000';
+      ctx.beginPath();
+      ctx.arc(rng() * w, rng() * h, 3 + rng() * 7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    return canvas;
+  }
+
+  // Zones interdites au décor aléatoire : autour du point d'arrivée, le
+  // long du chemin central, et autour de chaque élément fixe (pour ne
+  // pas planter un arbre en plein milieu de la cabane).
+  function isBlocked(x, y, landmarkZones) {
+    const distToSpawn = Math.hypot(x - WORLD.spawn.x, y - WORLD.spawn.y);
+    if (distToSpawn < 130) return true;
+    if (Math.abs(x) < 85 && y > -240 && y < 500) return true; // chemin cabane <-> ponton
+    for (const zone of landmarkZones) {
+      if (Math.hypot(x - zone.x, y - zone.y) < zone.r) return true;
+    }
+    return false;
+  }
+
+  function buildLandmarkZones() {
+    return WORLD.landmarks.map((l) => {
+      const size = DECOR_SIZE[l.type] || [60, 60];
+      const r = Math.max(size[0], size[1]) * (l.scale || 1) * 0.62;
+      return { x: l.x, y: l.y, r };
     });
   }
 
-  (zone.buildings || []).forEach((cfg) => {
-    const gY = groundHeight(cfg.x, cfg.y, zone.radius, zone.seed);
-    const building = makeBuilding(cfg);
-    building.position.y = gY;
-    group.add(building);
-  });
+  /**
+   * Construit le décor complet du monde : sol (canvas déjà peint) et
+   * liste de props (arbres, buissons, cabane, ponton...) placés de façon
+   * déterministe (même seed => même disposition à chaque chargement).
+   */
+  function buildWorld() {
+    const ground = buildGroundCanvas(WORLD);
+    const rng = mathUtils.mulberry32(mathUtils.hashString(WORLD.id) + 1);
+    const landmarkZones = buildLandmarkZones();
+    const props = [];
 
-  const portalMeshes = [];
-  (zone.portals || []).forEach((portalConfig) => {
-    const portalGroup = buildPortal(portalConfig, zone);
-    group.add(portalGroup);
-    portalMeshes.push({ group: portalGroup, to: portalConfig.to, worldX: portalConfig.pos.x, worldY: portalConfig.pos.y });
-  });
+    WORLD.decor.forEach(({ type, count }) => {
+      const size = DECOR_SIZE[type] || [40, 50];
+      for (let i = 0; i < count; i++) {
+        let x = 0, y = 0, tries = 0, placed = false;
+        while (tries < 30) {
+          const angle = rng() * Math.PI * 2;
+          const spread = 0.32 + rng() * 0.62;
+          const maxR = Math.max(0, WORLD.grassRadius(angle) - 34);
+          x = Math.cos(angle) * maxR * spread;
+          y = Math.sin(angle) * maxR * spread;
+          tries++;
+          if (!isBlocked(x, y, landmarkZones)) {
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) continue;
+        const canvas = buildDecorCanvas(type, rng, WORLD.accentColor);
+        if (!canvas) continue;
+        const scale = 0.85 + rng() * 0.4;
+        props.push({ type, x, y, canvas, worldW: size[0] * scale, worldH: size[1] * scale });
+      }
+    });
 
-  return { group, portalMeshes, swayItems, waterMeshes };
-}
+    WORLD.landmarks.forEach((l) => {
+      const size = DECOR_SIZE[l.type] || [60, 60];
+      const canvas = buildDecorCanvas(l.type, rng, WORLD.accentColor);
+      if (!canvas) return;
+      const scale = l.scale || 1;
+      props.push({ type: l.type, x: l.x, y: l.y, canvas, worldW: size[0] * scale, worldH: size[1] * scale });
+    });
+
+    // Tri par profondeur (y croissant) une fois pour toutes : le sol ne
+    // bouge jamais, donc l'ordre de dessin peut être précalculé ici.
+    props.sort((a, b) => a.y - b.y);
+
+    return { world: WORLD, ground, props };
+  }
+
+  window.Game.WorldBuilder = { WORLD, buildWorld, clampToIsland, resolvePlayerMove };
+})();

@@ -1,7 +1,7 @@
 /* ======================================================================
-   Identité visuelle : "univers cosy" — planètes flottantes, coucher de
-   soleil permanent, cartes flottantes arrondies, ombres douces,
-   transitions fluides. Palette pastel chaude, typographie ronde.
+   Identité visuelle : "univers cosy" — île de départ 2D vue de dessus, cartes
+   flottantes arrondies, ombres douces, transitions fluides. Palette
+   pastel chaude, typographie ronde.
    Tous les id/class lus par client.js, game/main.js et game/Inventory.js
    sont conservés à l'identique : seuls forme/couleur/mouvement changent.
    ====================================================================== */
@@ -9,33 +9,33 @@
 @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 :root {
-  --bg-a: #fff3d6;
-  --bg-b: #ffe3b0;
-  --bg-c: #d9edc4;
-  --bg-d: #bfe3d8;
+  --bg-a: #ffe3c9;
+  --bg-b: #ffd3e6;
+  --bg-c: #d9e3ff;
+  --bg-d: #cdeeff;
 
-  --panel: rgba(255, 251, 240, 0.86);
+  --panel: rgba(255, 251, 246, 0.82);
   --panel-alt: rgba(255, 255, 255, 0.55);
-  --panel-solid: #fffaf0;
-  --border: rgba(255, 255, 255, 0.92);
-  --border-soft: rgba(94, 71, 38, 0.14);
+  --panel-solid: #fffaf3;
+  --border: rgba(255, 255, 255, 0.9);
+  --border-soft: rgba(120, 90, 130, 0.12);
 
-  --text: #4a3826;
-  --muted: #8a7358;
-  --muted-dim: #b3a084;
+  --text: #4a3b55;
+  --muted: #8d7a97;
+  --muted-dim: #b6a7bd;
 
   --signal: #52c98a;        /* connecté / actif */
   --signal-dim: #bdeccf;
   --signal-ink: #0d3b26;
-  --warn: #e8a23f;          /* reconnexion / grâce */
-  --danger: #e0665a;        /* déconnecté / erreur */
-  --accent: #4f9bd1;        /* liens / infos secondaires */
-  --accent-warm: #c8703f;   /* accents chauds (titres, bannière de zone) */
+  --warn: #ffb15e;          /* reconnexion / grâce */
+  --danger: #ff7d95;        /* déconnecté / erreur */
+  --accent: #7ab8f5;        /* liens / infos secondaires */
+  --accent-lav: #b79bf0;
 
   --radius: 20px;
   --radius-sm: 13px;
-  --shadow-soft: 0 10px 28px rgba(90, 60, 20, 0.14), 0 2px 6px rgba(90, 60, 20, 0.08);
-  --shadow-pop: 0 14px 34px rgba(90, 60, 20, 0.2), 0 4px 10px rgba(90, 60, 20, 0.12);
+  --shadow-soft: 0 10px 28px rgba(120, 80, 120, 0.14), 0 2px 6px rgba(120, 80, 120, 0.08);
+  --shadow-pop: 0 14px 34px rgba(120, 80, 120, 0.2), 0 4px 10px rgba(120, 80, 120, 0.12);
 
   --font-ui: 'Baloo 2', 'Nunito', system-ui, sans-serif;
   --font-body: 'Nunito', system-ui, sans-serif;
@@ -70,9 +70,9 @@ code {
 
 /* Scrollbars douces (amélioration cosmétique, dégrade proprement si non
    supporté par le navigateur). */
-* { scrollbar-width: thin; scrollbar-color: var(--accent-warm) transparent; }
+* { scrollbar-width: thin; scrollbar-color: var(--accent-lav) transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
-*::-webkit-scrollbar-thumb { background: rgba(200, 112, 63, 0.4); border-radius: 8px; }
+*::-webkit-scrollbar-thumb { background: rgba(183, 155, 240, 0.5); border-radius: 8px; }
 *::-webkit-scrollbar-track { background: transparent; }
 
 @keyframes floatIn {
@@ -300,12 +300,11 @@ input[type="password"] { margin-bottom: 18px; }
   border: 1.5px solid transparent;
   padding: 12px 20px;
   cursor: pointer;
-  transition: transform 0.16s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.15s ease, box-shadow 0.18s ease, background 0.15s ease;
+  transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
   white-space: nowrap;
-  box-shadow: 0 2px 0 rgba(90, 60, 20, 0.08);
 }
-.btn:hover { transform: translateY(-2px); box-shadow: 0 8px 16px rgba(90, 60, 20, 0.16); }
-.btn:active { transform: translateY(1px) scale(0.98); box-shadow: 0 1px 0 rgba(90, 60, 20, 0.1); }
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(1px) scale(0.98); }
 
 .btn--primary {
   background: linear-gradient(180deg, #6be0a4, var(--signal));
@@ -317,9 +316,9 @@ input[type="password"] { margin-bottom: 18px; }
 .btn--secondary {
   background: var(--panel-solid);
   border-color: var(--accent);
-  color: #2d6f96;
+  color: #2f6fb0;
 }
-.btn--secondary:hover { background: rgba(79, 155, 209, 0.12); }
+.btn--secondary:hover { background: rgba(122, 184, 245, 0.12); }
 
 .btn--ghost {
   background: transparent;
@@ -620,7 +619,7 @@ kbd {
 }
 
 /* ---------------------------------------------------------------- */
-/* Overlay du mini-jeu 3D — vue PAR DÉFAUT dès qu'on est dans une    */
+/* Overlay du mini-jeu 2D — vue PAR DÉFAUT dès qu'on est dans une    */
 /* salle (voir game/main.js, qui bascule --active tout seul). Le     */
 /* chat se superpose PAR-DESSUS via #chatOverlay (Tab).              */
 /* ---------------------------------------------------------------- */
@@ -631,7 +630,7 @@ kbd {
   z-index: 40;
   display: none;
   flex-direction: column;
-  background: linear-gradient(180deg, #bfe3d8 0%, #d9edc4 55%, #ffe3b0 100%);
+  background: radial-gradient(circle at 50% 30%, #4a3560 0%, #241a3d 100%);
 }
 
 .game-overlay--active {
@@ -656,7 +655,7 @@ kbd {
 
 .game-overlay__title {
   font-family: var(--font-ui);
-  color: var(--accent-warm);
+  color: #7a4fbf;
   font-weight: 700;
   letter-spacing: 0.2px;
 }
@@ -702,43 +701,8 @@ kbd {
   cursor: default;
 }
 
-/* Bannière de nom de zone — apparaît brièvement à chaque arrivée      */
-/* dans une zone (voir game/render/WorldRenderer.js).                  */
-.zone-banner {
-  position: absolute;
-  top: 22px;
-  left: 50%;
-  transform: translate(-50%, -14px);
-  padding: 9px 22px;
-  border-radius: 999px;
-  background: rgba(255, 251, 246, 0.88);
-  border: 1.5px solid var(--border);
-  box-shadow: var(--shadow-soft);
-  font-family: var(--font-ui);
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--accent-warm);
-  opacity: 0;
-  pointer-events: none;
-  z-index: 15;
-  transition: opacity 0.5s ease, transform 0.5s ease;
-}
-
-.zone-banner--show {
-  opacity: 1;
-  transform: translate(-50%, 0);
-  animation: bannerFade 3.2s ease forwards;
-}
-
-@keyframes bannerFade {
-  0% { opacity: 0; transform: translate(-50%, -14px); }
-  12% { opacity: 1; transform: translate(-50%, 0); }
-  82% { opacity: 1; transform: translate(-50%, 0); }
-  100% { opacity: 0; transform: translate(-50%, -10px); }
-}
-
-/* Bulles de chat flottant au-dessus des personnages dans le monde 3D  */
-/* (positionnées en JS via un point projeté caméra -> écran, voir      */
+/* Bulles de chat flottant au-dessus des personnages dans le monde 2D  */
+/* (positionnées en JS via un point projeté monde -> écran, voir       */
 /* game/GameEngine.js::_syncBubbles). Purement visuel, pointer-events  */
 /* désactivés pour ne jamais gêner les clics/déplacements.             */
 .world-bubble-layer {
@@ -771,7 +735,120 @@ kbd {
 }
 
 /* ---------------------------------------------------------------- */
-/* HUD : portrait/vie, mini-inventaire. Superposé au canvas 3D.      */
+/* Chat "en jeu" façon Dofus : boîte sombre translucide, ancrée en   */
+/* bas à gauche de la vue, posée au-dessus du canvas (jamais un      */
+/* overlay plein écran comme .chat-overlay). Les messages s'ajoutent */
+/* en bas de la pile et s'effacent tout seuls après un délai (classe */
+/* .game-chatbox__line--fade ajoutée/retirée en JS, voir             */
+/* addGameChatLine dans client.js) : pas de scrollbar, pas de bouton  */
+/* "fermer", exactement comme le journal d'un MMO en fond de jeu.     */
+/* ---------------------------------------------------------------- */
+
+.game-chatbox {
+  position: absolute;
+  left: 18px;
+  bottom: 92px;
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, 42vw);
+  pointer-events: none;
+}
+
+.game-chatbox__log {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 3px;
+  max-height: 200px;
+  overflow: hidden;
+  padding: 8px 10px;
+  mask-image: linear-gradient(to bottom, transparent, #000 22px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 22px);
+}
+
+.game-chatbox__line {
+  padding: 2px 9px;
+  border-radius: 9px;
+  background: rgba(24, 16, 34, 0.5);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #f4edff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  width: fit-content;
+  max-width: 100%;
+  word-break: break-word;
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 0.55s ease, transform 0.55s ease;
+  animation: chatLineIn 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.game-chatbox__line--fade {
+  opacity: 0;
+  transform: translateX(-8px);
+}
+
+.game-chatbox__line--system {
+  color: #d9c9ff;
+  font-style: italic;
+  background: rgba(24, 16, 34, 0.32);
+}
+
+.game-chatbox__line--mine .game-chatbox__author { color: #8be6b4; }
+
+.game-chatbox__author {
+  font-weight: 700;
+  color: #ffd76a;
+}
+
+.game-chatbox__sep {
+  margin: 0 4px;
+  opacity: 0.5;
+}
+
+.game-chatbox__form {
+  pointer-events: auto;
+  margin-top: 6px;
+}
+
+.game-chatbox__form input {
+  width: 100%;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.16);
+  background: rgba(24, 16, 34, 0.5);
+  color: #f4edff;
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  outline: none;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.game-chatbox__form input::placeholder {
+  color: rgba(244, 237, 255, 0.55);
+}
+
+.game-chatbox__form input:focus {
+  background: rgba(24, 16, 34, 0.72);
+  border-color: var(--accent-lav);
+}
+
+@keyframes chatLineIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 720px) {
+  .game-chatbox {
+    width: min(300px, 60vw);
+    bottom: 128px;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* HUD : portrait/vie, mini-inventaire. Superposé au canvas 2D.      */
 /* ---------------------------------------------------------------- */
 
 .rpg-hud {
@@ -935,7 +1012,7 @@ kbd {
   font-weight: 700;
   letter-spacing: 0.4px;
   text-transform: uppercase;
-  color: var(--accent-warm);
+  color: #7a4fbf;
 }
 
 .rpg-hud__inventory-grid {
@@ -963,7 +1040,7 @@ kbd {
 
 /* ---------------------------------------------------------------- */
 /* Overlay du chat — flotte par-dessus le jeu, ouvert/fermé avec Tab.*/
-/* Le jeu (rendu 3D + boucle) continue de tourner en dessous, jamais */
+/* Le jeu (rendu 2D + boucle) continue de tourner en dessous, jamais */
 /* interrompu par l'ouverture du chat.                               */
 /* ---------------------------------------------------------------- */
 
@@ -1037,7 +1114,7 @@ kbd {
   font-family: var(--font-ui);
   font-size: 16px;
   font-weight: 700;
-  color: var(--accent-warm);
+  color: #7a4fbf;
 }
 
 .inventory-panel__hint {
@@ -1064,7 +1141,7 @@ kbd {
   border-radius: 12px;
   transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.inventory-slot:hover { transform: translateY(-3px); box-shadow: 0 8px 14px rgba(90, 60, 20, 0.18); border-color: var(--accent-warm); }
+.inventory-slot:hover { transform: translateY(-2px); }
 
 .inventory-slot--empty {
   opacity: 0.5;
@@ -1081,7 +1158,7 @@ kbd {
   font-size: 9.5px;
   font-weight: 800;
   font-family: var(--font-ui);
-  color: var(--accent-warm);
+  color: #7a4fbf;
 }
 
 @media (max-width: 480px) {

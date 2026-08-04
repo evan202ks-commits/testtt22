@@ -67,6 +67,10 @@ const el = {
   chatForm: document.getElementById('chatForm'),
   chatInput: document.getElementById('chatInput'),
 
+  gameChatLog: document.getElementById('gameChatLog'),
+  gameChatForm: document.getElementById('gameChatForm'),
+  gameChatInput: document.getElementById('gameChatInput'),
+
   consoleEl: document.getElementById('console'),
   btnClearConsole: document.getElementById('btnClearConsole'),
   sendForm: document.getElementById('sendForm'),
@@ -243,16 +247,82 @@ function addChatSystemLine(text) {
   el.chatMessages.scrollTop = el.chatMessages.scrollHeight;
 }
 
-el.chatForm.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const text = el.chatInput.value.trim();
+// ------------------------------------------------------------------
+// Chat "en jeu" façon Dofus — petite boîte toujours visible en bas à
+// gauche de l'écran de jeu (voir #gameChatBox dans index.html), qui
+// double le panneau complet (Tab) sans jamais le remplacer. Chaque
+// ligne s'ajoute en bas de la pile puis s'efface toute seule au bout
+// de GAME_CHAT_LINE_TTL_MS (fondu géré en CSS via la classe
+// .game-chatbox__line--fade, retirée du DOM une fois le fondu terminé).
+// ------------------------------------------------------------------
+const GAME_CHAT_LINE_TTL_MS = 12000;
+const GAME_CHAT_FADE_MS = 550;
+const GAME_CHAT_MAX_LINES = 40;
+
+function addGameChatLine({ author, text, mine = false, system = false }) {
+  if (!el.gameChatLog) return;
+
+  const line = document.createElement('div');
+  line.className = `game-chatbox__line${system ? ' game-chatbox__line--system' : ''}${mine ? ' game-chatbox__line--mine' : ''}`;
+
+  if (system) {
+    line.textContent = text;
+  } else {
+    const authorSpan = document.createElement('span');
+    authorSpan.className = 'game-chatbox__author';
+    authorSpan.textContent = author;
+    const sep = document.createElement('span');
+    sep.className = 'game-chatbox__sep';
+    sep.textContent = '·';
+    const textSpan = document.createElement('span');
+    textSpan.className = 'game-chatbox__text';
+    textSpan.textContent = text;
+    line.append(authorSpan, sep, textSpan);
+  }
+
+  el.gameChatLog.appendChild(line);
+
+  // Garde-fou : même si le fondu s'occupe normalement de tout, on
+  // borne le nombre de lignes en attente pour ne jamais laisser le DOM
+  // grossir sans limite (ex: rafale de messages très rapprochés).
+  while (el.gameChatLog.children.length > GAME_CHAT_MAX_LINES) {
+    el.gameChatLog.removeChild(el.gameChatLog.firstChild);
+  }
+
+  setTimeout(() => {
+    line.classList.add('game-chatbox__line--fade');
+    setTimeout(() => line.remove(), GAME_CHAT_FADE_MS);
+  }, GAME_CHAT_LINE_TTL_MS);
+}
+
+// Point d'entrée unique pour l'envoi d'un message de chat : alimente à
+// la fois le panneau complet (Tab) et la boîte en jeu, pour que les
+// deux restent toujours cohérents quel que soit le champ utilisé.
+function sendChatMessage(rawText) {
+  const text = (rawText || '').trim();
   if (!text) return;
 
   socket.emit('message:broadcast', { type: 'chat', data: { text } });
-  addChatBubble({ author: state.myUsername || 'Moi', text, mine: true, time: timeNow() });
+  const author = state.myUsername || 'Moi';
+  addChatBubble({ author, text, mine: true, time: timeNow() });
+  addGameChatLine({ author, text, mine: true });
+}
+
+el.chatForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  sendChatMessage(el.chatInput.value);
   el.chatInput.value = '';
   el.chatInput.focus();
 });
+
+if (el.gameChatForm) {
+  el.gameChatForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    sendChatMessage(el.gameChatInput.value);
+    el.gameChatInput.value = '';
+    el.gameChatInput.blur(); // rend la main aux touches de déplacement tout de suite
+  });
+}
 
 // ------------------------------------------------------------------
 // Journal technique (panneau avancé) — tout ce qui transite, brut
@@ -269,6 +339,7 @@ function logLine(text, kind = 'system') {
 el.btnClearConsole.addEventListener('click', () => {
   el.consoleEl.innerHTML = '';
   el.chatMessages.innerHTML = '';
+  if (el.gameChatLog) el.gameChatLog.innerHTML = '';
 });
 
 // ------------------------------------------------------------------
@@ -293,6 +364,7 @@ function registerSocketHandlers() {
     setConnectionStatus('warn');
     logLine(`Connexion perdue (${reason}). Tentative de reconnexion...`, 'error');
     addChatSystemLine('Connexion perdue, tentative de reconnexion...');
+    addGameChatLine({ text: 'Connexion perdue, tentative de reconnexion...', system: true });
   });
 
   socket.io.on('reconnect_attempt', (attempt) => {
@@ -338,15 +410,18 @@ function registerSocketHandlers() {
   socket.on('user:joined', (u) => {
     logLine(`${u.username} a rejoint la salle.`, 'system');
     addChatSystemLine(`${u.username} a rejoint la salle.`);
+    addGameChatLine({ text: `${u.username} a rejoint la salle.`, system: true });
   });
   socket.on('user:left', (u) => {
     const name = getUsernameById(u.id);
     logLine(`${name} a quitté la salle.`, 'system');
     addChatSystemLine(`${name} a quitté la salle.`);
+    addGameChatLine({ text: `${name} a quitté la salle.`, system: true });
   });
   socket.on('user:reconnected', (u) => {
     logLine(`${u.username} s'est reconnecté.`, 'system');
     addChatSystemLine(`${u.username} s'est reconnecté.`);
+    addGameChatLine({ text: `${u.username} s'est reconnecté.`, system: true });
   });
   socket.on('user:disconnected_temp', (u) => {
     const name = getUsernameById(u.id);
@@ -366,7 +441,10 @@ function registerSocketHandlers() {
     });
 
     if (envelope.type === 'chat' && envelope.data && typeof envelope.data.text === 'string') {
-      if (!mine) addChatBubble({ author, text: envelope.data.text, mine: false, time });
+      if (!mine) {
+        addChatBubble({ author, text: envelope.data.text, mine: false, time });
+        addGameChatLine({ author, text: envelope.data.text, mine: false });
+      }
     } else {
       // Donnée personnalisée (mode avancé) : on l'affiche dans le journal
       // technique plutôt que dans le chat, pour ne pas polluer la conversation.
@@ -434,7 +512,9 @@ function enterRoom(roomCode, users) {
   el.screenHome.classList.add('screen--hidden');
   el.screenRoom.classList.remove('screen--hidden');
   el.chatMessages.innerHTML = '';
+  if (el.gameChatLog) el.gameChatLog.innerHTML = '';
   addChatSystemLine(`Vous avez rejoint la salle ${roomCode}.`);
+  addGameChatLine({ text: `Vous avez rejoint la salle ${roomCode}.`, system: true });
   renderUserList(users);
   startPingLoop();
   el.chatInput.focus();

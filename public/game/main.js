@@ -33,7 +33,7 @@
     const btnCloseInventory = document.getElementById('btnCloseInventory');
     const chatBubblesToggle = document.getElementById('chatBubblesToggle');
     const worldBubbleLayer = document.getElementById('worldBubbleLayer');
-    const zoneBanner = document.getElementById('zoneBanner');
+    const gameChatInput = document.getElementById('gameChatInput');
     const CHAT_BUBBLES_STORAGE_KEY = 'realtime-infra:chatBubblesEnabled';
 
     if (!gameOverlay || !chatOverlay || !screenRoom || !canvas || typeof socket === 'undefined' || typeof state === 'undefined') {
@@ -65,7 +65,6 @@
         if (hudCount) hudCount.textContent = String(count);
       },
       bubbleLayerEl: worldBubbleLayer,
-      bannerEl: zoneBanner,
     });
 
     const inventory = new window.Game.Inventory({
@@ -174,8 +173,19 @@
         return;
       }
 
-      if (e.key === 'Escape' && inventory.open) {
-        closeInventory();
+      // Entrée place directement le curseur dans le chat en jeu (bas à
+      // gauche), sans avoir besoin d'ouvrir le panneau complet (Tab) —
+      // comme dans la plupart des MMO. Sans effet si on tape déjà
+      // quelque part (un autre champ, ou le chat en jeu lui-même).
+      if (e.key === 'Enter' && inRoom && gameChatInput && !isTypingTarget(e.target)) {
+        e.preventDefault();
+        gameChatInput.focus();
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        if (inventory.open) closeInventory();
+        if (gameChatInput && document.activeElement === gameChatInput) gameChatInput.blur();
       }
     });
   }
