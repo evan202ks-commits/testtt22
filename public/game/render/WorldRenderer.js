@@ -143,7 +143,7 @@ window.Game = window.Game || {};
   // centre sans dépendre d'un axe de départ particulier.
   // ------------------------------------------------------------------
   const PROJECTILE_SPRITE = { url: '/assets/sprites/item_peanut_projectile.png', w: 220, h: 117 };
-  const PROJECTILE_DISPLAY_H = 20; // hauteur à l'écran (px monde), largeur déduite du ratio du sprite
+  const PROJECTILE_DISPLAY_H = 13; // hauteur à l'écran (px monde), largeur déduite du ratio du sprite
   const PROJECTILE_SPIN_SPEED = 12; // radians / seconde (vitesse de rotation en vol)
 
   let _projectileImg = null;
