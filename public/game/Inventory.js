@@ -64,13 +64,10 @@ window.Game.Inventory = class Inventory {
 
   _defaultSlots() {
     const slots = new Array(this.slotCount).fill(null);
-    // Petit fond de sac de départ, purement illustratif — chaque joueur
-    // part avec ceci puis évolue indépendamment des autres.
-    slots[0] = { icon: '🗡️', name: 'Épée courte', qty: 1 };
-    slots[1] = { icon: '🧪', name: 'Potion de soin', qty: 2 };
-    slots[2] = { icon: '🪵', name: 'Bois', qty: 3 };
-    slots[3] = { icon: '🍞', name: 'Pain', qty: 1 };
-    slots[4] = {
+    // Fond de sac de départ — chaque joueur part avec ceci puis évolue
+    // indépendamment des autres. Seul le lance-cacahuète (l'objet
+    // équipable affiché dans la main du personnage) est présent.
+    slots[0] = {
       image: '/assets/sprites/item_peanut_launcher.png',
       name: 'Lance-cacahuète',
       qty: 1,
