@@ -116,6 +116,17 @@
       <div id="worldBubbleLayer" class="world-bubble-layer" aria-live="polite"></div>
 
       <!-- ============================================================ -->
+      <!-- Barre de vie : au-dessus de la hotbar, toujours visible en    -->
+      <!-- jeu. Mise à jour à chaque frame par game/main.js à partir de  -->
+      <!-- game/GameEngine.js (onHealthChange), lui-même lu depuis les   -->
+      <!-- PV du joueur local (game/Player.js : health / maxHealth).     -->
+      <!-- ============================================================ -->
+      <div id="healthBar" class="health-bar" aria-label="Barre de vie" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
+        <div id="healthBarFill" class="health-bar__fill"></div>
+        <span id="healthBarText" class="health-bar__text">100 / 100</span>
+      </div>
+
+      <!-- ============================================================ -->
       <!-- Hotbar façon Minecraft : reflète les 9 premières cases du     -->
       <!-- sac (game/Inventory.js). Toujours visible en jeu, sélection   -->
       <!-- via les touches 1-9, la molette, ou un clic direct. La case   -->

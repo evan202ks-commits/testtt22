@@ -1099,6 +1099,62 @@ kbd {
 }
 
 /* ---------------------------------------------------------------- */
+/* Barre de vie — juste au-dessus de la hotbar, toujours affichée    */
+/* en jeu. Remplissage proportionnel aux PV courants (voir           */
+/* game/main.js, callback onHealthChange de game/GameEngine.js).     */
+/* ---------------------------------------------------------------- */
+
+.health-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 78px;
+  transform: translateX(-50%);
+  z-index: 15;
+  width: 220px;
+  height: 20px;
+  padding: 3px;
+  background: rgba(255, 251, 246, 0.82);
+  border: 1.5px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.health-bar__fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ff9db0 0%, var(--danger) 100%);
+  box-shadow: 0 1px 3px rgba(255, 125, 149, 0.4) inset;
+  transition: width 0.25s ease;
+}
+
+.health-bar__text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 10.5px;
+  font-weight: 800;
+  font-family: var(--font-ui);
+  color: var(--text);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .health-bar {
+    width: 160px;
+    height: 16px;
+    bottom: 56px;
+  }
+  .health-bar__text {
+    font-size: 9px;
+  }
+}
+
+/* ---------------------------------------------------------------- */
 /* Hotbar (barre d'objets rapide) — façon Minecraft, toujours        */
 /* affichée en bas de l'écran de jeu, au-dessus du canvas. Reflète   */
 /* les 9 premières cases du sac (voir game/Inventory.js). Sélection  */

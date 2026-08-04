@@ -31,6 +31,9 @@
     const inventoryOwnerName = document.getElementById('inventoryOwnerName');
     const btnCloseInventory = document.getElementById('btnCloseInventory');
     const hotbarEl = document.getElementById('hotbar');
+    const healthBarFill = document.getElementById('healthBarFill');
+    const healthBarText = document.getElementById('healthBarText');
+    const healthBarEl = document.getElementById('healthBar');
     const chatBubblesToggle = document.getElementById('chatBubblesToggle');
     const worldBubbleLayer = document.getElementById('worldBubbleLayer');
     const gameChatInput = document.getElementById('gameChatInput');
@@ -54,6 +57,14 @@
       }),
       onRosterChange: (count) => {
         if (hudCount) hudCount.textContent = String(count);
+      },
+      onHealthChange: (health, maxHealth) => {
+        if (healthBarFill) {
+          const ratio = maxHealth > 0 ? Math.max(0, Math.min(1, health / maxHealth)) : 0;
+          healthBarFill.style.width = `${ratio * 100}%`;
+        }
+        if (healthBarText) healthBarText.textContent = `${Math.round(health)} / ${maxHealth}`;
+        if (healthBarEl) healthBarEl.setAttribute('aria-valuenow', String(Math.round(health)));
       },
       bubbleLayerEl: worldBubbleLayer,
     });

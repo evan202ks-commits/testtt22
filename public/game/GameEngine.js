@@ -29,10 +29,14 @@
 window.Game = window.Game || {};
 
 window.Game.GameEngine = class GameEngine {
-  constructor({ canvas, socket, getSessionState, onRosterChange, bubbleLayerEl }) {
+  constructor({ canvas, socket, getSessionState, onRosterChange, onHealthChange, bubbleLayerEl }) {
     this.canvas = canvas;
     this.getSessionState = getSessionState;
     this.onRosterChange = onRosterChange || (() => {});
+    // Appelé à chaque frame avec (health, maxHealth) du joueur local, pour
+    // que main.js puisse tenir à jour la barre de vie au-dessus de la
+    // hotbar (voir index.html #healthBar).
+    this.onHealthChange = onHealthChange || (() => {});
     this.bubbleLayerEl = bubbleLayerEl || null;
 
     this.renderer = new window.Game.WorldRenderer(canvas, { bubbleLayerEl });
@@ -143,6 +147,29 @@ window.Game.GameEngine = class GameEngine {
     if (this._running) this.network.sendEquip(this._localEquipId);
   }
 
+  /**
+   * Points de vie du joueur local (voir game/Player.js : setHealth/damage/
+   * heal). Purement local pour l'instant — aucun message réseau dédié —
+   * mais suffisant pour piloter la barre de vie de la hotbar dès qu'une
+   * mécanique de jeu voudra l'utiliser.
+   */
+  getLocalPlayer() {
+    const session = this.getSessionState();
+    return session?.myUserId ? this.players.get(session.myUserId) : null;
+  }
+
+  setLocalHealth(value) {
+    this.getLocalPlayer()?.setHealth(value);
+  }
+
+  damageLocal(amount) {
+    this.getLocalPlayer()?.damage(amount);
+  }
+
+  healLocal(amount) {
+    this.getLocalPlayer()?.heal(amount);
+  }
+
   // ------------------------------------------------------------------
   // Boucle de jeu
   // ------------------------------------------------------------------
@@ -197,6 +224,8 @@ window.Game.GameEngine = class GameEngine {
 
     this.renderer.followTarget(me.x, me.y, dt);
     this.renderer.setTime(this.gameTime);
+
+    this.onHealthChange(me.health, me.maxHealth);
   }
 
   _render(dt) {

@@ -72,10 +72,37 @@ window.Game.Player = class Player {
     // GameEngine.setLocalEquipped(); pour les autres, par les messages
     // réseau "game:equip" (voir GameNetwork.js).
     this.equippedItem = null;
+
+    // Points de vie du joueur, affichés dans la barre de vie au-dessus de
+    // la hotbar (voir index.html #healthBar et GameEngine._update). Aucune
+    // mécanique de dégâts n'existe encore dans ce projet : la valeur reste
+    // à son maximum tant que rien n'appelle damage()/heal()/setHealth().
+    this.maxHealth = 100;
+    this.health = this.maxHealth;
   }
 
   setEquipped(equipId) {
     this.equippedItem = equipId || null;
+  }
+
+  /** Fixe les PV à `value`, bornés entre 0 et maxHealth. */
+  setHealth(value) {
+    this.health = window.Game.mathUtils.clamp(value, 0, this.maxHealth);
+  }
+
+  /** Retire `amount` PV (jamais en dessous de 0). */
+  damage(amount) {
+    this.setHealth(this.health - Math.max(0, amount));
+  }
+
+  /** Rend `amount` PV (jamais au-dessus de maxHealth). */
+  heal(amount) {
+    this.setHealth(this.health + Math.max(0, amount));
+  }
+
+  /** Ratio PV courants / PV max, entre 0 et 1 — pratique pour une barre de vie. */
+  getHealthRatio() {
+    return this.maxHealth > 0 ? this.health / this.maxHealth : 0;
   }
 
   setTarget(x, y) {
