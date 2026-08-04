@@ -13,9 +13,9 @@
  *     client.js) via un MutationObserver — donc sans jamais appeler ni
  *     modifier client.js.
  *   - le mini-jeu est la vue PAR DÉFAUT dès qu'on est dans une salle ;
- *     la touche Tab ouvre/ferme le chat par-dessus, sans jamais stopper
- *     le jeu qui continue de tourner (et de recevoir les positions des
- *     autres joueurs) pendant que le chat est ouvert.
+ *     le bouton "👥 Salle" (HUD) ouvre/ferme le panneau complet par-
+ *     dessus, sans jamais stopper le jeu qui continue de tourner (et de
+ *     recevoir les positions des autres joueurs) pendant qu'il est ouvert.
  * ----------------------------------------------------------------------
  */
 
@@ -33,6 +33,8 @@
     const chatBubblesToggle = document.getElementById('chatBubblesToggle');
     const worldBubbleLayer = document.getElementById('worldBubbleLayer');
     const gameChatInput = document.getElementById('gameChatInput');
+    const btnToggleRoomPanel = document.getElementById('btnToggleRoomPanel');
+    const btnCloseRoomPanel = document.getElementById('btnCloseRoomPanel');
     const CHAT_BUBBLES_STORAGE_KEY = 'realtime-infra:chatBubblesEnabled';
 
     if (!gameOverlay || !chatOverlay || !screenRoom || !canvas || typeof socket === 'undefined' || typeof state === 'undefined') {
@@ -115,6 +117,13 @@
       else openChat();
     }
 
+    if (btnToggleRoomPanel) {
+      btnToggleRoomPanel.addEventListener('click', () => toggleChat());
+    }
+    if (btnCloseRoomPanel) {
+      btnCloseRoomPanel.addEventListener('click', () => closeChat());
+    }
+
     function enterRoomMode() {
       if (inRoom) return;
       inRoom = true;
@@ -148,12 +157,6 @@
     if (isCurrentlyInRoom()) enterRoomMode();
 
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Tab' && inRoom) {
-        e.preventDefault();
-        toggleChat();
-        return;
-      }
-
       if ((e.key === 'e' || e.key === 'E') && inRoom && !isTypingTarget(e.target)) {
         e.preventDefault();
         toggleInventory();
@@ -161,9 +164,10 @@
       }
 
       // Entrée place directement le curseur dans le chat en jeu (bas à
-      // gauche), sans avoir besoin d'ouvrir le panneau complet (Tab) —
-      // comme dans la plupart des MMO. Sans effet si on tape déjà
-      // quelque part (un autre champ, ou le chat en jeu lui-même).
+      // gauche), sans avoir besoin d'ouvrir le panneau complet (bouton
+      // "👥 Salle") — comme dans la plupart des MMO. Sans effet si on
+      // tape déjà quelque part (un autre champ, ou le chat en jeu
+      // lui-même).
       if (e.key === 'Enter' && inRoom && gameChatInput && !isTypingTarget(e.target)) {
         e.preventDefault();
         gameChatInput.focus();
@@ -173,6 +177,7 @@
       if (e.key === 'Escape') {
         if (inventory.open) closeInventory();
         if (gameChatInput && document.activeElement === gameChatInput) gameChatInput.blur();
+        if (chatOpen) closeChat();
       }
     });
   }

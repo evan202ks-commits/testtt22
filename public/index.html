@@ -95,7 +95,9 @@
   <!-- ============================================================ -->
   <!-- OVERLAY : mini-jeu 2D (vue du dessus, Canvas 2D natif)         -->
   <!-- C'est la vue PAR DÉFAUT dès qu'on est dans une salle.          -->
-  <!-- Tab ouvre/ferme le chat par-dessus (voir #chatOverlay).        -->
+  <!-- Le bouton "👥 Salle" ouvre/ferme le panneau complet par-dessus -->
+  <!-- (voir #chatOverlay) : liste des joueurs, chat complet, mode    -->
+  <!-- avancé. Le jeu continue de tourner en dessous.                 -->
   <!-- ============================================================ -->
   <div id="gameOverlay" class="game-overlay">
     <div class="game-overlay__hud">
@@ -105,7 +107,8 @@
         <input type="checkbox" id="chatBubblesToggle" checked />
         🗨️ Bulles de chat
       </label>
-      <span class="game-overlay__hint">Déplacement : ZQSD / flèches · <kbd>Shift</kbd> pour courir · <kbd>Tab</kbd> pour le chat · <kbd>E</kbd> pour le sac</span>
+      <button id="btnToggleRoomPanel" class="btn btn--ghost btn--small game-overlay__panel-btn" type="button">👥 Salle</button>
+      <span class="game-overlay__hint">Déplacement : ZQSD / flèches · <kbd>Shift</kbd> pour courir · <kbd>E</kbd> pour le sac</span>
     </div>
 
     <div class="game-overlay__viewport">
@@ -114,7 +117,7 @@
 
       <!-- ============================================================ -->
       <!-- Chat "en jeu" façon Dofus : toujours visible en bas à gauche, -->
-      <!-- pas besoin d'ouvrir le panneau (Tab) pour lire ou écrire.     -->
+      <!-- pas besoin d'ouvrir le panneau ("👥 Salle") pour lire ou écrire.     -->
       <!-- Chaque message s'efface tout seul après quelques secondes    -->
       <!-- (voir addGameChatLine dans client.js). Appuyer sur Entrée y   -->
       <!-- place le curseur directement (voir game/main.js).            -->
@@ -145,7 +148,7 @@
 
   <!-- ============================================================ -->
   <!-- OVERLAY : chat + liste des utilisateurs, superposé au jeu.    -->
-  <!-- Fermé par défaut, ouvert avec Tab, sans jamais interrompre    -->
+  <!-- Fermé par défaut, ouvert avec le bouton "👥 Salle", sans jamais interrompre    -->
   <!-- le jeu qui continue de tourner dessous.                      -->
   <!-- Le contenu de #screen-room lui-même n'est pas modifié : on le -->
   <!-- déplace seulement dans ce conteneur pour le faire flotter.    -->
@@ -164,7 +167,7 @@
               <h2>Salle <code id="roomCodeDisplay">—</code></h2>
               <button id="btnLeaveRoom" class="btn btn--ghost btn--small">Quitter</button>
             </div>
-            <p class="game-hint">🎮 Appuyez sur <kbd>Tab</kbd> pour revenir au jeu</p>
+            <p class="game-hint">🎮 <button id="btnCloseRoomPanel" class="link-btn" type="button">Revenir au jeu</button></p>
             <ul id="userList" class="user-list"></ul>
           </aside>
 

@@ -252,7 +252,7 @@ function addChatSystemLine(text) {
 // ------------------------------------------------------------------
 // Chat "en jeu" façon Dofus — petite boîte toujours visible en bas à
 // gauche de l'écran de jeu (voir #gameChatBox dans index.html), qui
-// double le panneau complet (Tab) sans jamais le remplacer. Chaque
+// double le panneau complet ("👥 Salle") sans jamais le remplacer. Chaque
 // ligne s'ajoute en bas de la pile puis s'efface toute seule au bout
 // de GAME_CHAT_LINE_TTL_MS (fondu géré en CSS via la classe
 // .game-chatbox__line--fade, retirée du DOM une fois le fondu terminé).
@@ -298,7 +298,7 @@ function addGameChatLine({ author, text, mine = false, system = false }) {
 }
 
 // Point d'entrée unique pour l'envoi d'un message de chat : alimente à
-// la fois le panneau complet (Tab) et la boîte en jeu, pour que les
+// la fois le panneau complet ("👥 Salle") et la boîte en jeu, pour que les
 // deux restent toujours cohérents quel que soit le champ utilisé.
 function sendChatMessage(rawText) {
   const text = (rawText || '').trim();

@@ -660,7 +660,7 @@ select {
 }
 
 /* ---------------------------------------------------------------- */
-/* Indice Tab (en-tête de la salle)                                  */
+/* Indice + bouton "revenir au jeu" (en-tête de la salle)             */
 /* ---------------------------------------------------------------- */
 
 .game-hint {
@@ -670,6 +670,20 @@ select {
   color: var(--muted);
   border-bottom: 1.5px solid var(--border-soft);
 }
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--accent);
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-btn:hover { color: #2f6fb0; }
 
 kbd {
   font-family: var(--font-mono);
@@ -685,7 +699,8 @@ kbd {
 /* ---------------------------------------------------------------- */
 /* Overlay du mini-jeu 2D — vue PAR DÉFAUT dès qu'on est dans une    */
 /* salle (voir game/main.js, qui bascule --active tout seul). Le     */
-/* chat se superpose PAR-DESSUS via #chatOverlay (Tab).              */
+/* panneau complet se superpose PAR-DESSUS via #chatOverlay (bouton  */
+/* "👥 Salle" du HUD, voir .game-overlay__panel-btn ci-dessous).      */
 /* ---------------------------------------------------------------- */
 
 .game-overlay {
@@ -938,7 +953,8 @@ kbd {
 }
 
 /* ---------------------------------------------------------------- */
-/* Overlay du chat — flotte par-dessus le jeu, ouvert/fermé avec Tab.*/
+/* Overlay du chat — flotte par-dessus le jeu, ouvert/fermé via le    */
+/* bouton "👥 Salle" du HUD (voir game/main.js).                       */
 /* Le jeu (rendu 2D + boucle) continue de tourner en dessous, jamais */
 /* interrompu par l'ouverture du chat.                               */
 /* ---------------------------------------------------------------- */
