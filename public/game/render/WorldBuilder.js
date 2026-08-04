@@ -239,16 +239,16 @@ window.Game = window.Game || {};
     // pour concentrer les conifères au nord (forêt) et laisser le reste
     // de l'île plus clairsemé, comme sur la référence.
     decor: [
-      { type: 'pine', count: 26, angleRange: [deg(-150), deg(-25)], spreadRange: [0.3, 0.92] },
-      { type: 'tree', count: 10, angleRange: [deg(-130), deg(-10)], spreadRange: [0.35, 0.85] },
-      { type: 'tree', count: 9, spreadRange: [0.2, 0.7] },
+      { type: 'pine', count: 15, angleRange: [deg(-150), deg(-25)], spreadRange: [0.3, 0.92] },
+      { type: 'tree', count: 6, angleRange: [deg(-130), deg(-10)], spreadRange: [0.35, 0.85] },
+      { type: 'deadTree', count: 2, angleRange: [deg(-150), deg(-25)], spreadRange: [0.4, 0.85] },
+      { type: 'tree', count: 7, spreadRange: [0.2, 0.7] },
       { type: 'appleTree', count: 3, spreadRange: [0.3, 0.6] },
       { type: 'bush', count: 14, spreadRange: [0.2, 0.85] },
       { type: 'rock', count: 16, spreadRange: [0.3, 0.95] },
       { type: 'mushroom', count: 10, angleRange: [deg(-150), deg(-25)], spreadRange: [0.35, 0.85] },
       { type: 'flower', count: 16, spreadRange: [0.2, 0.9] },
       { type: 'stump', count: 5, angleRange: [deg(-150), deg(-25)], spreadRange: [0.35, 0.85] },
-      { type: 'deadTree', count: 3, angleRange: [deg(-150), deg(-25)], spreadRange: [0.4, 0.85] },
     ],
     landmarks: [
       // Affleurement rocheux boisé au sommet nord de l'île.
@@ -665,7 +665,7 @@ window.Game = window.Game || {};
 
   // Taille "monde" (largeur, hauteur) en pixels de chaque type de décor.
   const DECOR_SIZE = {
-    tree: [96, 152], appleTree: [96, 152], pine: [76, 176], deadTree: [70, 150], bush: [44, 36],
+    tree: [90, 138], appleTree: [90, 138], pine: [66, 152], deadTree: [64, 134], bush: [44, 36],
     rock: [36, 24], mushroom: [27, 32], flower: [22, 34], stump: [46, 30],
     barrel: [30, 40], signpost: [46, 92], campfire: [76, 56],
     gardenPatch: [200, 150], dock: [96, 300], boat: [70, 50],
@@ -933,13 +933,29 @@ window.Game = window.Game || {};
     const rng = mathUtils.mulberry32(mathUtils.hashString(WORLD.id) + 1);
     const landmarkZones = buildLandmarkZones();
     const props = [];
+    // Positions déjà occupées par un élément "haut" (arbre/buisson),
+    // consultées par tooCloseToPlacedTall pour espacer le tirage
+    // aléatoire (voir minSpacing dans la boucle ci-dessous).
+    const _placedTall = [];
+    function tooCloseToPlacedTall(x, y, minDist) {
+      for (const pt of _placedTall) {
+        if (Math.hypot(x - pt.x, y - pt.y) < minDist) return true;
+      }
+      return false;
+    }
 
     WORLD.decor.forEach(({ type, count, angleRange, spreadRange }) => {
       const size = DECOR_SIZE[type] || [40, 50];
       const [sMin, sMax] = spreadRange || [0.32, 0.94];
+      // Écart minimal entre deux éléments "hauts" (arbres/buissons) pour
+      // éviter que les cimes ne s'entassent les unes sur les autres —
+      // sans ça, le tirage purement aléatoire produit des paquets
+      // d'arbres agglutinés par endroits (voir _placedTall, partagé
+      // entre toutes les entrées de WORLD.decor).
+      const minSpacing = TREE_TYPE_POOLS[type] || type === 'bush' ? size[0] * 1.05 + 20 : 0;
       for (let i = 0; i < count; i++) {
         let x = 0, y = 0, tries = 0, placed = false;
-        while (tries < 30) {
+        while (tries < 60) {
           const angle = angleRange
             ? angleRange[0] + rng() * (angleRange[1] - angleRange[0])
             : rng() * Math.PI * 2;
@@ -948,22 +964,23 @@ window.Game = window.Game || {};
           x = Math.cos(angle) * maxR * spread;
           y = Math.sin(angle) * maxR * spread;
           tries++;
-          if (!isBlocked(x, y, landmarkZones)) {
-            placed = true;
-            break;
-          }
+          if (isBlocked(x, y, landmarkZones)) continue;
+          if (minSpacing && tooCloseToPlacedTall(x, y, minSpacing)) continue;
+          placed = true;
+          break;
         }
         if (!placed) continue;
+        if (minSpacing) _placedTall.push({ x, y });
         // Types "arbre" -> sprite fourni (voir TREE_TYPE_POOLS), reste ->
         // icône procédurale peinte sur canvas (comportement inchangé).
         if (TREE_TYPE_POOLS[type]) {
-          const worldH = size[1] * (0.85 + rng() * 0.4);
+          const worldH = size[1] * (0.85 + rng() * 0.3);
           props.push(makeTreeProp(type, x, y, rng, worldH));
           continue;
         }
         const canvas = buildDecorCanvas(type, rng, WORLD.accentColor);
         if (!canvas) continue;
-        const scale = 0.85 + rng() * 0.4;
+        const scale = 0.85 + rng() * 0.3;
         props.push({ type, x, y, canvas, worldW: size[0] * scale, worldH: size[1] * scale });
       }
     });
