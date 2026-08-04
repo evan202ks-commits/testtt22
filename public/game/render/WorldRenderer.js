@@ -341,6 +341,23 @@ window.Game = window.Game || {};
     _drawProp(prop) {
       const p = this.worldToScreen(prop.x, prop.y);
       this._drawShadow(p.x, p.y, prop.worldW * 0.28);
+      if (prop.rotation) {
+        // Rotation optionnelle autour du point d'ancrage (base de l'icône,
+        // voir landmarks tels que le ponton — dessiné "vers le haut" par
+        // défaut, tourné ici pour pointer dans la direction voulue).
+        this.ctx.save();
+        this.ctx.translate(p.x, p.y);
+        this.ctx.rotate(prop.rotation);
+        this.ctx.drawImage(
+          prop.canvas,
+          -prop.worldW / 2,
+          -prop.worldH,
+          prop.worldW,
+          prop.worldH
+        );
+        this.ctx.restore();
+        return;
+      }
       this.ctx.drawImage(
         prop.canvas,
         p.x - prop.worldW / 2,
