@@ -38,6 +38,40 @@ window.Game = window.Game || {};
   const ROW_UP = 2;
   const ROW_RIGHT = 3;
 
+  // ------------------------------------------------------------------
+  // Atlas alternatifs "personnage armé" : quand un objet de cette liste
+  // est équipé, on n'affiche plus l'atlas de base + le sprite tenu en
+  // main (EQUIP_SPRITES) mais une feuille de sprites dédiée où l'arme
+  // est déjà intégrée au dessin du personnage dans chaque pose. Même
+  // principe de grille (5 colonnes idle+marche), mais l'ordre des
+  // lignes de celle du lance-cacahouète est FACE/CÔTÉ-droit/DOS/
+  // CÔTÉ-gauche (voir génération de l'atlas), d'où un mapping de lignes
+  // propre à cet atlas plutôt que ROW_LEFT/ROW_RIGHT habituels.
+  // ------------------------------------------------------------------
+  const EQUIPPED_ATLASES = {
+    peanut_launcher: {
+      url: '/assets/sprites/character_atlas_peanut_launcher.png',
+      frameW: 210,
+      frameH: 210,
+      rowDown: 0,
+      rowRight: 1,
+      rowUp: 2,
+      rowLeft: 3,
+    },
+  };
+
+  const _equippedAtlasImages = {};
+  function getEquippedAtlasImage(equipId) {
+    const def = EQUIPPED_ATLASES[equipId];
+    if (!def) return null;
+    if (!_equippedAtlasImages[equipId]) {
+      const img = new Image();
+      img.src = def.url;
+      _equippedAtlasImages[equipId] = img;
+    }
+    return _equippedAtlasImages[equipId];
+  }
+
   // Taille à l'écran du personnage (pixels), proche du gabarit relatif
   // qu'avait la créature dans l'ancienne version 3D par rapport aux arbres.
   const CHAR_HEIGHT = 88;
@@ -87,11 +121,19 @@ window.Game = window.Game || {};
    * dessus fixe), donc "est écran" = "est monde" et pas besoin de
    * projection comme dans l'ancienne version 3D à caméra 3/4.
    */
-  function directionRow(facingAngle) {
+  function directionKey(facingAngle) {
     const deg = (facingAngle * 180) / Math.PI; // 0=bas,90=droite,180/-180=haut,-90=gauche
-    if (deg > -45 && deg <= 45) return ROW_DOWN;
-    if (deg > 45 && deg <= 135) return ROW_RIGHT;
-    if (deg > 135 || deg <= -135) return ROW_UP;
+    if (deg > -45 && deg <= 45) return 'down';
+    if (deg > 45 && deg <= 135) return 'right';
+    if (deg > 135 || deg <= -135) return 'up';
+    return 'left';
+  }
+
+  function directionRow(facingAngle) {
+    const key = directionKey(facingAngle);
+    if (key === 'down') return ROW_DOWN;
+    if (key === 'right') return ROW_RIGHT;
+    if (key === 'up') return ROW_UP;
     return ROW_LEFT;
   }
 
@@ -149,7 +191,11 @@ window.Game = window.Game || {};
     // ------------------------------------------------------------------
     ensureAvatar(id, { color, isLocal }) {
       if (this._avatars.has(id)) return this._avatars.get(id);
-      const avatar = { color, isLocal, frame: { col: 0, row: ROW_DOWN }, bobY: 0, equippedItem: null };
+      const avatar = {
+        color, isLocal,
+        frame: { col: 0, row: ROW_DOWN, dirKey: 'down' },
+        bobY: 0, equippedItem: null,
+      };
       this._avatars.set(id, avatar);
       return avatar;
     }
@@ -175,10 +221,15 @@ window.Game = window.Game || {};
 
       const frame = avatar.frame;
       let row = frame.row;
-      if (player.isMoving) row = directionRow(player.facingAngle);
+      let dirKey = frame.dirKey;
+      if (player.isMoving) {
+        dirKey = directionKey(player.facingAngle);
+        row = directionRow(player.facingAngle);
+      }
       const col = player.isMoving ? 1 + Math.floor((t * 6) % 4) : 0;
       frame.col = col;
       frame.row = row;
+      frame.dirKey = dirKey;
 
       avatar.equippedItem = player.equippedItem || null;
     }
@@ -253,7 +304,35 @@ window.Game = window.Game || {};
       this.ctx.stroke();
       this.ctx.restore();
 
-      if (this.atlas.complete && this.atlas.naturalWidth > 0) {
+      // Si l'objet équipé a sa propre feuille de sprites "personnage armé"
+      // (voir EQUIPPED_ATLASES), on l'utilise à la place de l'atlas de
+      // base : l'arme y est déjà dessinée intégrée à chaque pose, donc on
+      // ne superpose plus le sprite tenu en main par-dessus (voir plus
+      // bas, _drawEquippedItem n'agit que pour les objets sans atlas dédié).
+      const equippedAtlasDef = avatar.equippedItem ? EQUIPPED_ATLASES[avatar.equippedItem] : null;
+      const equippedAtlasImg = equippedAtlasDef ? getEquippedAtlasImage(avatar.equippedItem) : null;
+      const useEquippedAtlas = !!(equippedAtlasDef && equippedAtlasImg && equippedAtlasImg.complete && equippedAtlasImg.naturalWidth > 0);
+
+      if (useEquippedAtlas) {
+        const { col, dirKey } = avatar.frame;
+        const row = dirKey === 'down' ? equippedAtlasDef.rowDown
+          : dirKey === 'right' ? equippedAtlasDef.rowRight
+          : dirKey === 'up' ? equippedAtlasDef.rowUp
+          : equippedAtlasDef.rowLeft;
+        const fw = equippedAtlasDef.frameW;
+        const fh = equippedAtlasDef.frameH;
+        // La cellule de cet atlas inclut l'arme, donc son ratio largeur/
+        // hauteur diffère de celui (plus étroit) de l'atlas de base : on
+        // calcule une largeur d'affichage dédiée à partir de son propre
+        // ratio, pour ne pas écraser/étirer le sprite horizontalement.
+        // Hauteur inchangée pour garder le personnage à la même taille.
+        const drawW = CHAR_HEIGHT * (fw / fh);
+        this.ctx.drawImage(
+          equippedAtlasImg,
+          col * fw, row * fh, fw, fh,
+          p.x - drawW / 2, p.y - CHAR_HEIGHT - avatar.bobY, drawW, CHAR_HEIGHT
+        );
+      } else if (this.atlas.complete && this.atlas.naturalWidth > 0) {
         const { col, row } = avatar.frame;
         this.ctx.drawImage(
           this.atlas,
@@ -269,7 +348,7 @@ window.Game = window.Game || {};
         this.ctx.fill();
       }
 
-      this._drawEquippedItem(avatar, p.x, p.y);
+      if (!useEquippedAtlas) this._drawEquippedItem(avatar, p.x, p.y);
     }
 
     /**
