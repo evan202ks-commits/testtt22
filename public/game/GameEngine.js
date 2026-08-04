@@ -271,7 +271,14 @@ window.Game.GameEngine = class GameEngine {
   }
 
   _spawnProjectile({ id, ownerId, x, y, dirX, dirY }) {
-    this.projectiles.push({ id, ownerId, x, y, dirX, dirY, age: 0 });
+    // Vitesse de rotation propre à ce tir (rad/s, sens et vitesse
+    // aléatoires) : donne l'effet d'une cacahuète lancée qui tournoie en
+    // vol, plutôt qu'une orientation figée sur la direction du tir. Générée
+    // localement par CHAQUE client (pas transmise au réseau) — purement
+    // cosmétique, une légère différence d'un joueur à l'autre ne se voit
+    // pas.
+    const spinSpeed = (Math.random() < 0.5 ? -1 : 1) * (9 + Math.random() * 7);
+    this.projectiles.push({ id, ownerId, x, y, dirX, dirY, age: 0, spinSpeed });
   }
 
   /**

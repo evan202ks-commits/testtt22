@@ -135,6 +135,26 @@ window.Game = window.Game || {};
     return _equipImages[equipId];
   }
 
+  // ------------------------------------------------------------------
+  // Sprite du projectile du lance-cacahuète (voir game/GameEngine.js :
+  // this.projectiles). Fond violet d'origine détouré, recadré et orienté
+  // à l'horizontale (grand axe le long de X) : la rotation appliquée au
+  // dessin (voir _drawProjectiles) tourne donc librement autour de son
+  // centre sans dépendre d'un axe de départ particulier.
+  // ------------------------------------------------------------------
+  const PROJECTILE_SPRITE = { url: '/assets/sprites/item_peanut_projectile.png', w: 220, h: 117 };
+  const PROJECTILE_DISPLAY_H = 20; // hauteur à l'écran (px monde), largeur déduite du ratio du sprite
+  const PROJECTILE_SPIN_SPEED = 12; // radians / seconde (vitesse de rotation en vol)
+
+  let _projectileImg = null;
+  function getProjectileImage() {
+    if (!_projectileImg) {
+      _projectileImg = new Image();
+      _projectileImg.src = PROJECTILE_SPRITE.url;
+    }
+    return _projectileImg;
+  }
+
   let sharedAtlas = null;
   function getSharedAtlas() {
     if (!sharedAtlas) {
@@ -430,25 +450,40 @@ window.Game = window.Game || {};
 
     /**
      * Dessine les projectiles actifs (voir game/GameEngine.js :
-     * this.projectiles) : une petite cacahuète ovale orientée dans le
-     * sens du tir. Pas de tri de profondeur avec le décor — ils volent
-     * au-dessus de tout, ce sont des projectiles rapides et minuscules.
+     * this.projectiles) : le sprite de la cacahuète, qui tourne sur
+     * lui-même en vol (voir p.spinSpeed, fixé au tir dans
+     * GameEngine._spawnProjectile) plutôt que de simplement s'orienter
+     * vers la direction du tir — effet de "cacahuète lancée qui
+     * tournoie". Pas de tri de profondeur avec le décor : les
+     * projectiles sont rapides et minuscules, ils volent au-dessus de
+     * tout.
      */
     _drawProjectiles(projectiles) {
       if (!projectiles || !projectiles.length) return;
       const ctx = this.ctx;
+      const img = getProjectileImage();
+      const imgReady = img.complete && img.naturalWidth > 0;
+      const drawH = PROJECTILE_DISPLAY_H;
+      const drawW = drawH * (PROJECTILE_SPRITE.w / PROJECTILE_SPRITE.h);
+
       for (const p of projectiles) {
         const s = this.worldToScreen(p.x, p.y);
+        const rotation = (p.age || 0) * (p.spinSpeed != null ? p.spinSpeed : PROJECTILE_SPIN_SPEED);
         ctx.save();
         ctx.translate(s.x, s.y);
-        ctx.rotate(Math.atan2(p.dirY, p.dirX));
-        ctx.fillStyle = '#d9ab63';
-        ctx.strokeStyle = '#8a6a34';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 8, 4.5, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
+        ctx.rotate(rotation);
+        if (imgReady) {
+          ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+        } else {
+          // Filet de sécurité pendant le chargement du sprite.
+          ctx.fillStyle = '#d9ab63';
+          ctx.strokeStyle = '#8a6a34';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, 8, 4.5, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
         ctx.restore();
       }
     }
