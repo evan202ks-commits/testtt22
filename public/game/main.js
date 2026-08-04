@@ -30,6 +30,7 @@
     const inventoryGrid = document.getElementById('inventoryGrid');
     const inventoryOwnerName = document.getElementById('inventoryOwnerName');
     const btnCloseInventory = document.getElementById('btnCloseInventory');
+    const hotbarEl = document.getElementById('hotbar');
     const chatBubblesToggle = document.getElementById('chatBubblesToggle');
     const worldBubbleLayer = document.getElementById('worldBubbleLayer');
     const gameChatInput = document.getElementById('gameChatInput');
@@ -61,6 +62,7 @@
       overlayEl: inventoryOverlay,
       gridEl: inventoryGrid,
       closeBtn: btnCloseInventory,
+      hotbarEl,
     });
 
     // ---------------------------------------------------------------
@@ -129,6 +131,7 @@
       inRoom = true;
       gameOverlay.classList.add('game-overlay--active');
       engine.start();
+      inventory.initFor(state.myUserId); // affiche la hotbar dès l'entrée en jeu
       closeChat(); // le jeu s'affiche en premier, le chat reste fermé par défaut
     }
 
@@ -179,7 +182,35 @@
         if (gameChatInput && document.activeElement === gameChatInput) gameChatInput.blur();
         if (chatOpen) closeChat();
       }
+
+      // Touches 1-9 : sélection directe d'une case de la hotbar, comme
+      // dans Minecraft. "0" sélectionne la 10e case si elle existe.
+      if (inRoom && !isTypingTarget(e.target) && e.key >= '0' && e.key <= '9') {
+        const pressed = Number(e.key);
+        const index = pressed === 0 ? 9 : pressed - 1;
+        if (index < inventory.hotbarSize) {
+          e.preventDefault();
+          inventory.selectSlot(index);
+        }
+      }
     });
+
+    // Molette de la souris au-dessus du jeu : fait défiler la sélection
+    // de la hotbar (comme dans Minecraft). On ignore la molette si elle
+    // est utilisée pour faire défiler autre chose (ex: panneau du sac,
+    // chat complet) en ne l'écoutant que sur le viewport du jeu.
+    const gameViewport = document.querySelector('.game-overlay__viewport');
+    if (gameViewport) {
+      gameViewport.addEventListener(
+        'wheel',
+        (e) => {
+          if (!inRoom || inventory.hotbarSize <= 0) return;
+          e.preventDefault();
+          inventory.selectRelative(e.deltaY > 0 ? 1 : -1);
+        },
+        { passive: false }
+      );
+    }
   }
 
   if (document.readyState === 'loading') {

@@ -108,12 +108,20 @@
         🗨️ Bulles de chat
       </label>
       <button id="btnToggleRoomPanel" class="btn btn--ghost btn--small game-overlay__panel-btn" type="button">👥 Salle</button>
-      <span class="game-overlay__hint">Déplacement : ZQSD / flèches · <kbd>Shift</kbd> pour courir · <kbd>E</kbd> pour le sac</span>
+      <span class="game-overlay__hint">Déplacement : ZQSD / flèches · <kbd>Shift</kbd> pour courir · <kbd>E</kbd> pour le sac · <kbd>1</kbd>-<kbd>9</kbd> ou molette pour la barre d'objets</span>
     </div>
 
     <div class="game-overlay__viewport">
       <canvas id="gameCanvas" class="game-overlay__canvas"></canvas>
       <div id="worldBubbleLayer" class="world-bubble-layer" aria-live="polite"></div>
+
+      <!-- ============================================================ -->
+      <!-- Hotbar façon Minecraft : reflète les 9 premières cases du     -->
+      <!-- sac (game/Inventory.js). Toujours visible en jeu, sélection   -->
+      <!-- via les touches 1-9, la molette, ou un clic direct. La case   -->
+      <!-- sélectionnée est mémorisée par joueur (localStorage).         -->
+      <!-- ============================================================ -->
+      <div id="hotbar" class="hotbar" aria-label="Barre d'objets rapide"></div>
 
       <!-- ============================================================ -->
       <!-- Chat "en jeu" façon Dofus : toujours visible en bas à gauche, -->

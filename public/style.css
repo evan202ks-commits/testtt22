@@ -1081,3 +1081,97 @@ kbd {
     grid-template-columns: repeat(4, 1fr);
   }
 }
+
+/* Case du sac correspondant à la sélection courante de la hotbar,   */
+/* surlignée quand le panneau du sac est ouvert (comme dans Minecraft */
+/* où la rangée du bas de l'inventaire reflète la barre rapide).      */
+.inventory-slot--hotbar-selected {
+  border-color: #7a4fbf;
+  box-shadow: 0 0 0 2px rgba(122, 79, 191, 0.35);
+}
+
+/* ---------------------------------------------------------------- */
+/* Hotbar (barre d'objets rapide) — façon Minecraft, toujours        */
+/* affichée en bas de l'écran de jeu, au-dessus du canvas. Reflète   */
+/* les 9 premières cases du sac (voir game/Inventory.js). Sélection  */
+/* via les touches 1-9, la molette de la souris, ou un clic.         */
+/* ---------------------------------------------------------------- */
+
+.hotbar {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 15;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  background: rgba(255, 251, 246, 0.82);
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+}
+
+.hotbar-slot {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.hotbar-slot--empty {
+  opacity: 0.5;
+}
+
+.hotbar-slot--selected {
+  border-color: #7a4fbf;
+  background: rgba(122, 79, 191, 0.14);
+  box-shadow: 0 0 0 2px rgba(122, 79, 191, 0.45), 0 2px 6px rgba(122, 79, 191, 0.25);
+  transform: translateY(-3px);
+}
+
+.hotbar-slot__key {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 9px;
+  font-weight: 800;
+  font-family: var(--font-ui);
+  color: var(--muted);
+}
+
+.hotbar-slot--selected .hotbar-slot__key {
+  color: #7a4fbf;
+}
+
+.hotbar-slot__icon {
+  font-size: 19px;
+}
+
+.hotbar-slot__qty {
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  font-size: 9.5px;
+  font-weight: 800;
+  font-family: var(--font-ui);
+  color: #7a4fbf;
+}
+
+@media (max-width: 480px) {
+  .hotbar {
+    gap: 4px;
+    padding: 4px;
+    bottom: 8px;
+  }
+  .hotbar-slot {
+    width: 34px;
+    height: 34px;
+  }
+  .hotbar-slot__icon {
+    font-size: 15px;
+  }
+}
