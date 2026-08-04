@@ -28,8 +28,17 @@
 
 window.Game = window.Game || {};
 
+// Réglages du tir au lance-cacahuète (voir _tryShoot / _updateProjectiles).
+const SHOT_COOLDOWN_MS = 500; // délai minimum entre deux tirs
+const PROJECTILE_SPEED = 520; // unités monde (px) / seconde
+const PROJECTILE_LIFE = 1.1; // secondes avant disparition (portée effective)
+const HIT_RADIUS = 34; // rayon de collision projectile <-> joueur
+const HIT_DAMAGE = 34; // dégâts par coup — 3 coups (34*3=102) suffisent à vider 100 PV
+const RESPAWN_DELAY_MS = 3000; // délai avant réapparition après K.O.
+const INVULNERABLE_MS = 1000; // immunité juste après réapparition
+
 window.Game.GameEngine = class GameEngine {
-  constructor({ canvas, socket, getSessionState, onRosterChange, onHealthChange, bubbleLayerEl }) {
+  constructor({ canvas, socket, getSessionState, onRosterChange, onHealthChange, onDeathChange, bubbleLayerEl }) {
     this.canvas = canvas;
     this.getSessionState = getSessionState;
     this.onRosterChange = onRosterChange || (() => {});
@@ -37,6 +46,9 @@ window.Game.GameEngine = class GameEngine {
     // que main.js puisse tenir à jour la barre de vie au-dessus de la
     // hotbar (voir index.html #healthBar).
     this.onHealthChange = onHealthChange || (() => {});
+    // Appelé avec (true) quand le joueur local tombe à 0 PV, puis (false)
+    // à sa réapparition — voir index.html #koOverlay.
+    this.onDeathChange = onDeathChange || (() => {});
     this.bubbleLayerEl = bubbleLayerEl || null;
 
     this.renderer = new window.Game.WorldRenderer(canvas, { bubbleLayerEl });
@@ -61,11 +73,27 @@ window.Game.GameEngine = class GameEngine {
     // défaut ; peut être coupé via setChatBubblesEnabled (voir main.js).
     this.chatBubblesEnabled = true;
 
+    // ------------------------------------------------------------------
+    // Tir au lance-cacahuète : liste des projectiles actifs (tirés par
+    // soi ou par les autres, voir _spawnProjectile), position souris
+    // (coordonnées écran, converties en monde au moment du tir via
+    // renderer.screenToWorld), et état K.O./réapparition du joueur local.
+    // ------------------------------------------------------------------
+    this.projectiles = [];
+    this._mouseScreen = { x: 0, y: 0 };
+    this._shotCooldownUntil = 0;
+    this._nextShotId = 1;
+    this._dead = false;
+    this._respawnAt = 0;
+    this._invulnerableUntil = 0;
+
     this._running = false;
     this._rafId = null;
     this._lastFrameAt = 0;
 
     this._boundResize = this._handleResize.bind(this);
+    this._boundMouseMove = this._onMouseMove.bind(this);
+    this._boundMouseDown = this._onMouseDown.bind(this);
     this._loop = this._loop.bind(this);
   }
 
@@ -90,10 +118,14 @@ window.Game.GameEngine = class GameEngine {
       onPlayerLeft: (userId) => this._handlePlayerLeft(userId),
       onChatMessage: (userId, text) => this._handleChatMessage(userId, text),
       onEquip: (userId, equipId) => this._handleRemoteEquip(userId, equipId),
+      onShoot: (userId, data) => this._handleRemoteShoot(userId, data),
+      onHit: (targetId, amount, shotId) => this._handleRemoteHit(targetId, amount, shotId),
     });
 
     this.input.enable();
     window.addEventListener('resize', this._boundResize);
+    this.canvas.addEventListener('mousemove', this._boundMouseMove);
+    this.canvas.addEventListener('mousedown', this._boundMouseDown);
 
     // Le canvas passe de display:none à display:flex juste avant start() ;
     // sa taille peut être 0 le temps d'un tick. On repousse le premier
@@ -117,9 +149,15 @@ window.Game.GameEngine = class GameEngine {
     this.network.disconnectHandlers();
     this.input.disable();
     window.removeEventListener('resize', this._boundResize);
+    this.canvas.removeEventListener('mousemove', this._boundMouseMove);
+    this.canvas.removeEventListener('mousedown', this._boundMouseDown);
 
     for (const id of this.players.keys()) this.renderer.removeAvatar(id);
     this._clearBubbles();
+
+    this.projectiles = [];
+    this._dead = false;
+    this.onDeathChange(false);
   }
 
   _handleResize() {
@@ -171,6 +209,144 @@ window.Game.GameEngine = class GameEngine {
   }
 
   // ------------------------------------------------------------------
+  // Tir au lance-cacahuète
+  // ------------------------------------------------------------------
+
+  _onMouseMove(e) {
+    const rect = this.canvas.getBoundingClientRect();
+    this._mouseScreen.x = e.clientX - rect.left;
+    this._mouseScreen.y = e.clientY - rect.top;
+  }
+
+  _onMouseDown(e) {
+    if (e.button !== 0) return; // clic gauche uniquement
+    this._tryShoot();
+  }
+
+  /**
+   * Tente un tir vers la position actuelle de la souris (convertie en
+   * coordonnées monde via la caméra du renderer). Ignoré si l'objet
+   * équipé n'est pas le lance-cacahuète, si le K.O. est en cours, ou si
+   * la cadence de tir (SHOT_COOLDOWN_MS) n'est pas encore écoulée.
+   */
+  _tryShoot() {
+    if (this._localEquipId !== 'peanut_launcher') return;
+    if (this._dead) return;
+
+    const now = performance.now();
+    if (now < this._shotCooldownUntil) return;
+
+    const session = this.getSessionState();
+    const me = session?.myUserId ? this.players.get(session.myUserId) : null;
+    if (!me) return;
+
+    this._shotCooldownUntil = now + SHOT_COOLDOWN_MS;
+
+    const worldMouse = this.renderer.screenToWorld(this._mouseScreen.x, this._mouseScreen.y);
+    let dirX = worldMouse.x - me.x;
+    let dirY = worldMouse.y - me.y;
+    const dist = Math.hypot(dirX, dirY) || 1;
+    dirX /= dist;
+    dirY /= dist;
+
+    const shotId = `${session.myUserId}:${this._nextShotId++}`;
+    this._spawnProjectile({ id: shotId, ownerId: session.myUserId, x: me.x, y: me.y, dirX, dirY });
+    this.network.sendShoot({ x: me.x, y: me.y, dirX, dirY, shotId });
+  }
+
+  _spawnProjectile({ id, ownerId, x, y, dirX, dirY }) {
+    this.projectiles.push({ id, ownerId, x, y, dirX, dirY, age: 0 });
+  }
+
+  /**
+   * Fait avancer tous les projectiles actifs et gère leur disparition
+   * (portée max atteinte). Seul le tireur (ownerId === joueur local)
+   * détecte les collisions avec les autres joueurs : chacun reste
+   * autoritaire sur ce que SES PROPRES tirs touchent, exactement comme
+   * chacun est déjà seul autoritaire sur sa propre position/équipement.
+   */
+  _updateProjectiles(dt) {
+    if (!this.projectiles.length) return;
+    const session = this.getSessionState();
+    const myId = session?.myUserId;
+
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const p = this.projectiles[i];
+      p.x += p.dirX * PROJECTILE_SPEED * dt;
+      p.y += p.dirY * PROJECTILE_SPEED * dt;
+      p.age += dt;
+
+      let remove = p.age >= PROJECTILE_LIFE;
+
+      if (!remove && p.ownerId === myId) {
+        for (const [id, player] of this.players) {
+          if (id === p.ownerId) continue;
+          const dist = Math.hypot(player.x - p.x, player.y - p.y);
+          if (dist <= HIT_RADIUS) {
+            this.network.sendHit({ targetId: id, amount: HIT_DAMAGE, shotId: p.id });
+            remove = true;
+            break;
+          }
+        }
+      }
+
+      if (remove) this.projectiles.splice(i, 1);
+    }
+  }
+
+  /**
+   * Un tireur (soi-même ou un autre joueur) vient d'annoncer un tir. On
+   * ignore nos propres tirs (déjà simulés localement dès l'émission, voir
+   * _tryShoot) — même logique que _handleRemoteMove pour game:move.
+   */
+  _handleRemoteShoot(userId, data) {
+    const session = this.getSessionState();
+    if (userId === session?.myUserId) return;
+    this._spawnProjectile({
+      id: data.shotId, ownerId: userId, x: data.x, y: data.y, dirX: data.dirX, dirY: data.dirY,
+    });
+  }
+
+  /**
+   * Un tireur annonce que SA simulation locale a détecté un coup sur
+   * `targetId`. On ignore tout ce qui ne nous concerne pas : seule la
+   * victime applique réellement les dégâts à sa propre barre de vie.
+   */
+  _handleRemoteHit(targetId, amount) {
+    const session = this.getSessionState();
+    if (targetId !== session?.myUserId) return;
+    if (this._dead) return;
+    if (performance.now() < this._invulnerableUntil) return;
+
+    const me = this.players.get(targetId);
+    if (!me) return;
+
+    me.damage(amount);
+    this.renderer.triggerDamageFlash();
+
+    if (me.health <= 0) this._enterDead();
+  }
+
+  _enterDead() {
+    this._dead = true;
+    this._respawnAt = performance.now() + RESPAWN_DELAY_MS;
+    this.onDeathChange(true);
+  }
+
+  _respawn(me) {
+    const spawn = this._spawnPosition(me.id, true);
+    me.x = spawn.x;
+    me.y = spawn.y;
+    me.targetX = spawn.x;
+    me.targetY = spawn.y;
+    me.setHealth(me.maxHealth);
+    this._dead = false;
+    this._invulnerableUntil = performance.now() + INVULNERABLE_MS;
+    this.network.sendPosition(me.x, me.y, true);
+    this.onDeathChange(false);
+  }
+
+  // ------------------------------------------------------------------
   // Boucle de jeu
   // ------------------------------------------------------------------
 
@@ -191,6 +367,29 @@ window.Game.GameEngine = class GameEngine {
     if (!session?.myUserId) return;
     const me = this.players.get(session.myUserId);
     if (!me) return;
+
+    // K.O. en cours : on gèle les entrées/tirs du joueur local (mais le
+    // reste du monde — autres joueurs, projectiles en vol — continue de
+    // vivre normalement) jusqu'à l'écoulement du délai de réapparition.
+    if (this._dead) {
+      if (performance.now() >= this._respawnAt) {
+        this._respawn(me);
+      } else {
+        me.updateAnimation(dt, 0, 0);
+        for (const player of this.players.values()) {
+          if (player.isLocal) continue;
+          const beforeX = player.x;
+          const beforeY = player.y;
+          player.interpolate(dt);
+          player.updateAnimation(dt, player.x - beforeX, player.y - beforeY);
+        }
+        this._updateProjectiles(dt);
+        this.renderer.followTarget(me.x, me.y, dt);
+        this.renderer.setTime(this.gameTime);
+        this.onHealthChange(me.health, me.maxHealth);
+        return;
+      }
+    }
 
     const dir = this.input.getDirection();
     const holdingMove = dir.x !== 0 || dir.y !== 0;
@@ -222,6 +421,8 @@ window.Game.GameEngine = class GameEngine {
       player.updateAnimation(dt, player.x - beforeX, player.y - beforeY);
     }
 
+    this._updateProjectiles(dt);
+
     this.renderer.followTarget(me.x, me.y, dt);
     this.renderer.setTime(this.gameTime);
 
@@ -234,7 +435,7 @@ window.Game.GameEngine = class GameEngine {
       this.renderer.updateAvatar(id, player);
     }
     this._syncBubbles();
-    this.renderer.render(dt, this.players);
+    this.renderer.render(dt, this.players, this.projectiles);
   }
 
   // ------------------------------------------------------------------

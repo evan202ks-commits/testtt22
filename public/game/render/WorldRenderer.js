@@ -188,6 +188,7 @@ window.Game = window.Game || {};
       this._camY = this.world.spawn.y;
 
       this._avatars = new Map(); // playerId -> { color, isLocal, frame: {col,row}, bobY }
+      this._damageFlash = 0; // 0..1, décroît chaque frame (voir triggerDamageFlash)
 
       this.resize();
     }
@@ -277,6 +278,19 @@ window.Game = window.Game || {};
 
     worldToScreen(x, y) {
       return { x: x - this._camX + this.width / 2, y: y - this._camY + this.height / 2 };
+    }
+
+    /** Inverse de worldToScreen : coordonnées écran (ex. la souris,
+     * relative au canvas) -> coordonnées monde. Sert à viser avec le
+     * lance-cacahuète (voir game/GameEngine.js : _tryShoot). */
+    screenToWorld(sx, sy) {
+      return { x: sx - this.width / 2 + this._camX, y: sy - this.height / 2 + this._camY };
+    }
+
+    /** Déclenche un bref flash rouge plein écran (retour visuel quand le
+     * joueur local encaisse un coup — voir GameEngine._handleRemoteHit). */
+    triggerDamageFlash() {
+      this._damageFlash = 1;
     }
 
     /** Projette un point monde vers des coordonnées écran en pixels, pour
@@ -414,7 +428,44 @@ window.Game = window.Game || {};
       this.ctx.drawImage(img, drawX, drawY, w, h);
     }
 
-    render(dt, players) {
+    /**
+     * Dessine les projectiles actifs (voir game/GameEngine.js :
+     * this.projectiles) : une petite cacahuète ovale orientée dans le
+     * sens du tir. Pas de tri de profondeur avec le décor — ils volent
+     * au-dessus de tout, ce sont des projectiles rapides et minuscules.
+     */
+    _drawProjectiles(projectiles) {
+      if (!projectiles || !projectiles.length) return;
+      const ctx = this.ctx;
+      for (const p of projectiles) {
+        const s = this.worldToScreen(p.x, p.y);
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.rotate(Math.atan2(p.dirY, p.dirX));
+        ctx.fillStyle = '#d9ab63';
+        ctx.strokeStyle = '#8a6a34';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 8, 4.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    /** Flash rouge plein écran, décroissant, déclenché par
+     * triggerDamageFlash() quand le joueur local encaisse un coup. */
+    _drawDamageFlash(dt) {
+      if (this._damageFlash <= 0) return;
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.fillStyle = `rgba(255, 55, 90, ${Math.min(0.4, this._damageFlash * 0.4)})`;
+      ctx.fillRect(0, 0, this.width, this.height);
+      ctx.restore();
+      this._damageFlash = Math.max(0, this._damageFlash - dt * 2.2);
+    }
+
+    render(dt, players, projectiles) {
       const ctx = this.ctx;
       ctx.clearRect(0, 0, this.width, this.height);
       ctx.fillStyle = '#3a2b52';
@@ -445,6 +496,9 @@ window.Game = window.Game || {};
           di++;
         }
       }
+
+      this._drawProjectiles(projectiles);
+      this._drawDamageFlash(dt);
     }
   }
 

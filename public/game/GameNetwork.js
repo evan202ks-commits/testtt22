@@ -29,6 +29,18 @@
  *     émis par public/client.js pour alimenter le panneau de chat) ; on
  *     l'écoute ICI EN PLUS, sans rien changer à client.js, pour afficher
  *     le même message dans une bulle au-dessus du personnage concerné.
+ *   - type "game:shoot" , data: { x, y, dirX, dirY, shotId } -> un joueur
+ *     vient de tirer avec le lance-cacahuète depuis (x,y) dans la
+ *     direction normalisée (dirX,dirY). Purement visuel pour tout le
+ *     monde SAUF le tireur : c'est LUI (et lui seul) qui détecte les
+ *     collisions sur sa propre machine (voir GameEngine._updateProjectiles),
+ *     exactement comme chacun est déjà seul autoritaire sur sa propre
+ *     position (game:move) ou son propre équipement (game:equip).
+ *   - type "game:hit"   , data: { targetId, amount, shotId } -> diffusé
+ *     par le tireur quand SA simulation locale détecte qu'un projectile a
+ *     touché `targetId`. Seul le joueur concerné (celui dont l'id
+ *     correspond à targetId) applique réellement les dégâts à sa propre
+ *     barre de vie ; tous les autres l'ignorent.
  * Le roster (qui est dans la salle) réutilise room:users / user:joined /
  * user:left / user:disconnected_temp, déjà diffusés par le serveur.
  * ----------------------------------------------------------------------
@@ -52,6 +64,8 @@ window.Game.GameNetwork = class GameNetwork {
     this._leaveHandler = null;
     this._chatHandler = null;
     this._equipHandler = null;
+    this._shootHandler = null;
+    this._hitHandler = null;
 
     this._onBroadcast = this._onBroadcast.bind(this);
     this._onRoomUsers = this._onRoomUsers.bind(this);
@@ -59,13 +73,15 @@ window.Game.GameNetwork = class GameNetwork {
     this._onUserLeft = this._onUserLeft.bind(this);
   }
 
-  connectHandlers({ onMove, onRosterSync, onPlayerJoined, onPlayerLeft, onChatMessage, onEquip }) {
+  connectHandlers({ onMove, onRosterSync, onPlayerJoined, onPlayerLeft, onChatMessage, onEquip, onShoot, onHit }) {
     this._moveHandler = onMove;
     this._rosterHandler = onRosterSync;
     this._joinHandler = onPlayerJoined;
     this._leaveHandler = onPlayerLeft;
     this._chatHandler = onChatMessage;
     this._equipHandler = onEquip;
+    this._shootHandler = onShoot;
+    this._hitHandler = onHit;
 
     this.socket.on('message:broadcast', this._onBroadcast);
     this.socket.on('room:users', this._onRoomUsers);
@@ -90,6 +106,14 @@ window.Game.GameNetwork = class GameNetwork {
     }
     if (envelope.type === 'game:equip') {
       this._equipHandler?.(envelope.from, envelope.data.equipId || null);
+      return;
+    }
+    if (envelope.type === 'game:shoot') {
+      this._shootHandler?.(envelope.from, envelope.data);
+      return;
+    }
+    if (envelope.type === 'game:hit') {
+      this._hitHandler?.(envelope.data.targetId, envelope.data.amount, envelope.data.shotId);
       return;
     }
     if (envelope.type === 'chat' && typeof envelope.data.text === 'string') {
@@ -135,6 +159,31 @@ window.Game.GameNetwork = class GameNetwork {
     this.socket.emit('message:broadcast', {
       type: 'game:equip',
       data: { equipId: equipId || null },
+    });
+  }
+
+  /**
+   * Diffuse un tir de lance-cacahuète depuis (x,y) dans la direction
+   * normalisée (dirX,dirY), avec un identifiant unique `shotId` (utile
+   * pour un futur suivi côté client, ex. éviter un double traitement).
+   * Jamais throttlé : chaque tir est un évènement ponctuel volontaire.
+   */
+  sendShoot({ x, y, dirX, dirY, shotId }) {
+    this.socket.emit('message:broadcast', {
+      type: 'game:shoot',
+      data: { x: Math.round(x), y: Math.round(y), dirX, dirY, shotId },
+    });
+  }
+
+  /**
+   * Diffuse le résultat d'une collision détectée LOCALEMENT par le
+   * tireur (voir GameEngine._updateProjectiles) : "j'ai touché
+   * `targetId`". Seul le joueur visé applique réellement les dégâts.
+   */
+  sendHit({ targetId, amount, shotId }) {
+    this.socket.emit('message:broadcast', {
+      type: 'game:hit',
+      data: { targetId, amount, shotId },
     });
   }
 };

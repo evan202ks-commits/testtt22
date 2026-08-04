@@ -34,6 +34,7 @@
     const healthBarFill = document.getElementById('healthBarFill');
     const healthBarText = document.getElementById('healthBarText');
     const healthBarEl = document.getElementById('healthBar');
+    const koOverlay = document.getElementById('koOverlay');
     const chatBubblesToggle = document.getElementById('chatBubblesToggle');
     const worldBubbleLayer = document.getElementById('worldBubbleLayer');
     const gameChatInput = document.getElementById('gameChatInput');
@@ -65,6 +66,9 @@
         }
         if (healthBarText) healthBarText.textContent = `${Math.round(health)} / ${maxHealth}`;
         if (healthBarEl) healthBarEl.setAttribute('aria-valuenow', String(Math.round(health)));
+      },
+      onDeathChange: (isDead) => {
+        koOverlay?.classList.toggle('ko-overlay--active', isDead);
       },
       bubbleLayerEl: worldBubbleLayer,
     });
