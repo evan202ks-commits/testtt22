@@ -33,6 +33,60 @@ window.Game = window.Game || {};
   const mathUtils = window.Game.mathUtils;
 
   // ------------------------------------------------------------------
+  // Sprites d'arbres (fournis par l'utilisateur — voir fiche des
+  // arbres) : découpés en "vue avant" depuis la planche de référence,
+  // fond violet détouré en transparence. Tailles naturelles figées en
+  // dur (mesurées une fois pour toutes à la découpe) pour pouvoir
+  // calculer worldW/worldH tout de suite, sans attendre le chargement
+  // réseau de l'image — même principe que FRAME_W/FRAME_H pour l'atlas
+  // du personnage dans WorldRenderer.js.
+  // ------------------------------------------------------------------
+  const TREE_SPRITE_DEFS = {
+    leafTree: { url: '/assets/sprites/trees/leaf_tree.png', w: 156, h: 187 },
+    leafTreeBig: { url: '/assets/sprites/trees/leaf_tree_big.png', w: 168, h: 198 },
+    pine: { url: '/assets/sprites/trees/pine.png', w: 119, h: 194 },
+    pineBig: { url: '/assets/sprites/trees/pine_big.png', w: 147, h: 172 },
+    fruitTree: { url: '/assets/sprites/trees/fruit_tree.png', w: 145, h: 156 },
+    deadTree: { url: '/assets/sprites/trees/dead_tree.png', w: 122, h: 154 },
+  };
+  // type de décor (voir WORLD.decor / WORLD.landmarks) -> pioche parmi
+  // plusieurs sprites (répétés pour pondérer les chances de tirage).
+  const TREE_TYPE_POOLS = {
+    tree: ['leafTree', 'leafTree', 'leafTree', 'leafTreeBig'],
+    pine: ['pine', 'pine', 'pine', 'pineBig'],
+    appleTree: ['fruitTree'],
+    deadTree: ['deadTree'],
+  };
+
+  const _treeSpriteImages = {};
+  function getTreeSpriteImage(key) {
+    if (!_treeSpriteImages[key]) {
+      const img = new Image();
+      img.src = TREE_SPRITE_DEFS[key].url;
+      _treeSpriteImages[key] = img;
+    }
+    return _treeSpriteImages[key];
+  }
+
+  function pickTreeSpriteKey(type, rng) {
+    const pool = TREE_TYPE_POOLS[type];
+    return pool[Math.floor(rng() * pool.length)];
+  }
+
+  /** Construit un prop "sprite d'arbre" (image, pas canvas peint) prêt à
+   * être poussé dans `props` : même forme que les props procéduraux
+   * (type/x/y/canvas/worldW/worldH[/rotation]), `canvas` pointant ici
+   * vers une <img> — ctx.drawImage() accepte les deux indifféremment. */
+  function makeTreeProp(type, x, y, rng, worldH, rotation) {
+    const spriteKey = pickTreeSpriteKey(type, rng);
+    const def = TREE_SPRITE_DEFS[spriteKey];
+    const img = getTreeSpriteImage(spriteKey);
+    const worldW = worldH * (def.w / def.h);
+    return { type, x, y, canvas: img, worldW, worldH, rotation: rotation || 0 };
+  }
+
+
+  // ------------------------------------------------------------------
   // Petits utilitaires couleur (remplacent THREE.Color de l'ancienne
   // version 3D) : `shade` éclaircit (amount > 0) ou assombrit
   // (amount < 0) une couleur CSS hex ou un entier 0xRRGGBB ; `hex`
@@ -194,6 +248,7 @@ window.Game = window.Game || {};
       { type: 'mushroom', count: 10, angleRange: [deg(-150), deg(-25)], spreadRange: [0.35, 0.85] },
       { type: 'flower', count: 16, spreadRange: [0.2, 0.9] },
       { type: 'stump', count: 5, angleRange: [deg(-150), deg(-25)], spreadRange: [0.35, 0.85] },
+      { type: 'deadTree', count: 3, angleRange: [deg(-150), deg(-25)], spreadRange: [0.4, 0.85] },
     ],
     landmarks: [
       // Affleurement rocheux boisé au sommet nord de l'île.
@@ -610,7 +665,7 @@ window.Game = window.Game || {};
 
   // Taille "monde" (largeur, hauteur) en pixels de chaque type de décor.
   const DECOR_SIZE = {
-    tree: [96, 152], appleTree: [96, 152], pine: [76, 176], bush: [44, 36],
+    tree: [96, 152], appleTree: [96, 152], pine: [76, 176], deadTree: [70, 150], bush: [44, 36],
     rock: [36, 24], mushroom: [27, 32], flower: [22, 34], stump: [46, 30],
     barrel: [30, 40], signpost: [46, 92], campfire: [76, 56],
     gardenPatch: [200, 150], dock: [96, 300], boat: [70, 50],
@@ -899,6 +954,13 @@ window.Game = window.Game || {};
           }
         }
         if (!placed) continue;
+        // Types "arbre" -> sprite fourni (voir TREE_TYPE_POOLS), reste ->
+        // icône procédurale peinte sur canvas (comportement inchangé).
+        if (TREE_TYPE_POOLS[type]) {
+          const worldH = size[1] * (0.85 + rng() * 0.4);
+          props.push(makeTreeProp(type, x, y, rng, worldH));
+          continue;
+        }
         const canvas = buildDecorCanvas(type, rng, WORLD.accentColor);
         if (!canvas) continue;
         const scale = 0.85 + rng() * 0.4;
@@ -908,9 +970,13 @@ window.Game = window.Game || {};
 
     WORLD.landmarks.forEach((l) => {
       const size = DECOR_SIZE[l.type] || [60, 60];
+      const scale = l.scale || 1;
+      if (TREE_TYPE_POOLS[l.type]) {
+        props.push(makeTreeProp(l.type, l.x, l.y, rng, size[1] * scale, l.rotation));
+        return;
+      }
       const canvas = buildDecorCanvas(l.type, rng, WORLD.accentColor);
       if (!canvas) return;
-      const scale = l.scale || 1;
       props.push({
         type: l.type, x: l.x, y: l.y, canvas,
         worldW: size[0] * scale, worldH: size[1] * scale,
