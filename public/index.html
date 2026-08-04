@@ -70,7 +70,15 @@
           <button id="btnCreateRoom" class="btn btn--primary">Créer une salle</button>
         </div>
 
-        <div class="divider"><span>ou</span></div>
+        <div class="rooms-browser">
+          <div class="rooms-browser__header">
+            <span class="field-label">Salles ouvertes</span>
+            <span class="rooms-browser__hint" id="roomsListHint">Aucune salle ouverte pour l'instant.</span>
+          </div>
+          <ul id="roomsList" class="rooms-list"></ul>
+        </div>
+
+        <div class="divider"><span>ou avec un code</span></div>
 
         <label class="field-label" for="roomCodeInput">Code de salle</label>
         <div class="join-row">

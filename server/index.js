@@ -100,6 +100,15 @@ function broadcastUserList(roomCode) {
   io.to(roomCode).emit('room:users', users);
 }
 
+// Diffusée à TOUS les sockets connectés (pas seulement une salle) : c'est
+// ce qui alimente la liste "Salles ouvertes" de l'écran d'accueil, pour
+// rejoindre une salle d'un clic sans connaître son code. Appelée à chaque
+// évènement qui change le nombre de salles ou d'occupants (création,
+// arrivée, départ, expiration de la grâce de reconnexion).
+function broadcastRoomsList() {
+  io.emit('rooms:list', roomManager.listRooms());
+}
+
 function log(...args) {
   console.log(`[${new Date().toISOString()}]`, ...args);
 }
@@ -131,6 +140,10 @@ io.on('connection', (socket) => {
   userIdToSocketId.set(userId, socket.id);
 
   socket.emit('identity', { userId, username: account.username });
+  // Instantané de la liste des salles ouvertes dès la connexion, pour que
+  // l'écran d'accueil ait quelque chose à afficher sans attendre le
+  // prochain évènement de salle.
+  socket.emit('rooms:list', roomManager.listRooms());
   log(`Connexion socket=${socket.id} user=${userId} compte=${account.username}`);
 
   // ------------------------------------------------------------------
@@ -157,6 +170,7 @@ io.on('connection', (socket) => {
         userId,
         users: roomManager.getUsersList(room.code),
       });
+      broadcastRoomsList();
     } catch (err) {
       log('Erreur room:create', err);
       callback?.({ ok: false, error: 'Impossible de créer la salle.' });
@@ -206,6 +220,7 @@ io.on('connection', (socket) => {
       socket.to(code).emit('user:joined', { id: userId, username: user.username });
     }
     broadcastUserList(code);
+    broadcastRoomsList();
   });
 
   // ------------------------------------------------------------------
@@ -218,6 +233,7 @@ io.on('connection', (socket) => {
       socket.leave(code);
       socket.to(code).emit('user:left', { id: userId });
       broadcastUserList(code);
+      broadcastRoomsList();
       socket.data.roomCode = null;
       log(`Utilisateur user=${userId} quitte salle=${code}`);
     }
@@ -319,6 +335,7 @@ io.on('connection', (socket) => {
     roomManager.scheduleRemoval(code, userId, () => {
       io.to(code).emit('user:left', { id: userId });
       broadcastUserList(code);
+      broadcastRoomsList();
       log(`Suppression définitive user=${userId} salle=${code} (grâce expirée)`);
     });
   });

@@ -103,6 +103,19 @@ class RoomManager {
     }));
   }
 
+  /**
+   * Liste publique des salles ouvertes (code + nombre d'occupants),
+   * utilisée par l'écran d'accueil pour permettre de rejoindre une
+   * salle d'un clic, sans avoir à connaître ni taper son code.
+   */
+  listRooms() {
+    return Array.from(this.rooms.values()).map((room) => ({
+      code: room.code,
+      userCount: room.users.size,
+      createdAt: room.createdAt,
+    }));
+  }
+
   findUserInRoom(code, userId) {
     const room = this.getRoom(code);
     return room?.users.get(userId) || null;

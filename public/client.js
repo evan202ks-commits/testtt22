@@ -55,6 +55,8 @@ const el = {
 
   homeUsername: document.getElementById('homeUsername'),
   btnCreateRoom: document.getElementById('btnCreateRoom'),
+  roomsList: document.getElementById('roomsList'),
+  roomsListHint: document.getElementById('roomsListHint'),
   roomCodeInput: document.getElementById('roomCodeInput'),
   btnJoinRoom: document.getElementById('btnJoinRoom'),
   homeError: document.getElementById('homeError'),
@@ -400,6 +402,11 @@ function registerSocketHandlers() {
   });
 
   // ------------------------------------------------------------------
+  // Liste des salles ouvertes (écran d'accueil) — mise à jour en direct
+  // ------------------------------------------------------------------
+  socket.on('rooms:list', renderRoomsList);
+
+  // ------------------------------------------------------------------
   // Liste des utilisateurs connectés dans la salle (pseudos + ping)
   // ------------------------------------------------------------------
   socket.on('room:users', (users) => {
@@ -492,7 +499,54 @@ function attemptJoin() {
     el.homeError.textContent = 'Merci de saisir un code de salle.';
     return;
   }
+  joinRoomByCode(roomCode);
+}
+
+function joinRoomByCode(roomCode) {
+  el.homeError.textContent = '';
   socket.emit('room:join', { roomCode }, handleJoinResponse);
+}
+
+// ------------------------------------------------------------------
+// Liste des salles ouvertes — un clic sur "Rejoindre" appelle
+// joinRoomByCode ci-dessus, exactement comme si le code avait été
+// tapé à la main. Rafraîchie en direct via l'évènement 'rooms:list'
+// (voir registerSocketHandlers), donc toujours à jour sans action de
+// l'utilisateur.
+// ------------------------------------------------------------------
+function renderRoomsList(rooms) {
+  if (!el.roomsList) return;
+  const list = Array.isArray(rooms) ? rooms : [];
+
+  el.roomsList.innerHTML = '';
+  if (el.roomsListHint) {
+    el.roomsListHint.style.display = list.length ? 'none' : '';
+  }
+
+  list
+    .slice()
+    .sort((a, b) => b.userCount - a.userCount || a.createdAt - b.createdAt)
+    .forEach((room) => {
+      const li = document.createElement('li');
+      li.className = 'rooms-list__item';
+
+      const code = document.createElement('span');
+      code.className = 'rooms-list__code';
+      code.textContent = room.code;
+
+      const count = document.createElement('span');
+      count.className = 'rooms-list__count';
+      count.textContent = `👤 ${room.userCount}`;
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn--secondary btn--small';
+      btn.textContent = 'Rejoindre';
+      btn.addEventListener('click', () => joinRoomByCode(room.code));
+
+      li.append(code, count, btn);
+      el.roomsList.appendChild(li);
+    });
 }
 
 function handleJoinResponse(res) {
