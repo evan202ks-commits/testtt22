@@ -1066,6 +1066,14 @@ kbd {
   font-size: 19px;
 }
 
+.inventory-slot__icon--image {
+  width: 78%;
+  height: 78%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
 .inventory-slot__qty {
   position: absolute;
   bottom: 2px;
@@ -1149,6 +1157,14 @@ kbd {
 
 .hotbar-slot__icon {
   font-size: 19px;
+}
+
+.hotbar-slot__icon--image {
+  width: 78%;
+  height: 78%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 .hotbar-slot__qty {

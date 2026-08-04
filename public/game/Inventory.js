@@ -63,6 +63,7 @@ window.Game.Inventory = class Inventory {
     slots[1] = { icon: '🧪', name: 'Potion de soin', qty: 2 };
     slots[2] = { icon: '🪵', name: 'Bois', qty: 3 };
     slots[3] = { icon: '🍞', name: 'Pain', qty: 1 };
+    slots[4] = { image: '/assets/sprites/item_peanut_launcher.png', name: 'Lance-cacahuète', qty: 1 };
     return slots;
   }
 
@@ -112,6 +113,27 @@ window.Game.Inventory = class Inventory {
     }
   }
 
+  /**
+   * Construit l'élément icône d'un objet : une image <img> si l'objet a
+   * un champ `image` (sprite dédié, ex. le lance-cacahuète), sinon un
+   * simple emoji texte (`icon`). `iconClass` distingue la taille selon
+   * qu'on est dans le sac ou la hotbar (voir style.css).
+   */
+  _buildIconEl(item, iconClass) {
+    if (item.image) {
+      const img = document.createElement('img');
+      img.className = `${iconClass} ${iconClass}--image`;
+      img.src = item.image;
+      img.alt = item.name || '';
+      img.draggable = false;
+      return img;
+    }
+    const icon = document.createElement('span');
+    icon.className = iconClass;
+    icon.textContent = item.icon;
+    return icon;
+  }
+
   _render() {
     if (!this.gridEl) return;
     this.gridEl.innerHTML = '';
@@ -120,10 +142,7 @@ window.Game.Inventory = class Inventory {
       slot.className = 'inventory-slot rpg-slot';
       if (item) {
         slot.title = item.qty > 1 ? `${item.name} ×${item.qty}` : item.name;
-        const icon = document.createElement('span');
-        icon.className = 'inventory-slot__icon';
-        icon.textContent = item.icon;
-        slot.appendChild(icon);
+        slot.appendChild(this._buildIconEl(item, 'inventory-slot__icon'));
         if (item.qty > 1) {
           const qty = document.createElement('span');
           qty.className = 'inventory-slot__qty';
@@ -159,10 +178,7 @@ window.Game.Inventory = class Inventory {
 
       if (item) {
         slot.title = item.qty > 1 ? `${item.name} ×${item.qty}` : item.name;
-        const icon = document.createElement('span');
-        icon.className = 'hotbar-slot__icon';
-        icon.textContent = item.icon;
-        slot.appendChild(icon);
+        slot.appendChild(this._buildIconEl(item, 'hotbar-slot__icon'));
         if (item.qty > 1) {
           const qty = document.createElement('span');
           qty.className = 'hotbar-slot__qty';
