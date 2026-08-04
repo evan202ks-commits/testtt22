@@ -51,12 +51,22 @@ window.Game = window.Game || {};
   const EQUIPPED_ATLASES = {
     peanut_launcher: {
       url: '/assets/sprites/character_atlas_peanut_launcher.png',
-      frameW: 210,
-      frameH: 210,
+      frameW: 309,
+      frameH: 235,
       rowDown: 0,
       rowRight: 1,
       rowUp: 2,
       rowLeft: 3,
+      // Ancre horizontale (0..1, fraction de frameW) : position des pieds
+      // du personnage dans la cellule, calée une fois pour toutes lors de
+      // la génération de l'atlas (voir script de découpe) sur *tous* les
+      // frames — contrairement au centre géométrique de la cellule, qui
+      // se déplaçait à chaque frame à cause de l'arme tenue en main
+      // (bras/canon qui pivote et déborde plus ou moins d'un côté selon
+      // la pose). Ancrer sur les pieds plutôt que sur la bbox visuelle
+      // complète évite que le corps du personnage ne "saute"
+      // horizontalement pendant l'animation de marche.
+      anchorXFrac: 146 / 309,
     },
   };
 
@@ -327,10 +337,15 @@ window.Game = window.Game || {};
         // ratio, pour ne pas écraser/étirer le sprite horizontalement.
         // Hauteur inchangée pour garder le personnage à la même taille.
         const drawW = CHAR_HEIGHT * (fw / fh);
+        // Ancrage horizontal sur les pieds (anchorXFrac, voir plus haut) —
+        // et non le centre de la cellule — pour que le corps reste fixe
+        // pendant que l'arme et les bras/jambes bougent d'une frame à
+        // l'autre de l'animation.
+        const anchorXFrac = equippedAtlasDef.anchorXFrac != null ? equippedAtlasDef.anchorXFrac : 0.5;
         this.ctx.drawImage(
           equippedAtlasImg,
           col * fw, row * fh, fw, fh,
-          p.x - drawW / 2, p.y - CHAR_HEIGHT - avatar.bobY, drawW, CHAR_HEIGHT
+          p.x - drawW * anchorXFrac, p.y - CHAR_HEIGHT - avatar.bobY, drawW, CHAR_HEIGHT
         );
       } else if (this.atlas.complete && this.atlas.naturalWidth > 0) {
         const { col, row } = avatar.frame;
