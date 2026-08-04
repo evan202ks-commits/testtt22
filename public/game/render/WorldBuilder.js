@@ -53,6 +53,13 @@ window.Game = window.Game || {};
     return `${url}?v=${ASSET_VERSION}`;
   }
 
+  // Sapins (pine.png / pine_big.png) retirés du tirage : silhouette
+  // haute et étroite qui rendait ces sprites visuellement sensibles aux
+  // problèmes de cache d'image (cime tronquée signalée par l'utilisateur,
+  // non reproduite côté code mais persistante côté client malgré le
+  // cache-busting). Les entrées restent définies ici uniquement pour ne
+  // pas casser TREE_SPRITE_DEFS/getTreeSpriteImage si jamais réutilisées
+  // plus tard, mais plus aucun pool ci-dessous n'y fait référence.
   const TREE_SPRITE_DEFS = {
     leafTree: { url: withVersion('/assets/sprites/trees/leaf_tree.png'), w: 156, h: 187 },
     leafTreeBig: { url: withVersion('/assets/sprites/trees/leaf_tree_big.png'), w: 168, h: 198 },
@@ -63,9 +70,13 @@ window.Game = window.Game || {};
   };
   // type de décor (voir WORLD.decor / WORLD.landmarks) -> pioche parmi
   // plusieurs sprites (répétés pour pondérer les chances de tirage).
+  // Le type "pine" (zones de forêt de conifères, voir WORLD.decor et le
+  // landmark du plateau rocheux) pioche désormais dans le même pool que
+  // "tree" (feuillage rond) : plus aucun sapin pointu n'est dessiné, sans
+  // avoir à toucher à la disposition/aux emplacements de la forêt.
   const TREE_TYPE_POOLS = {
     tree: ['leafTree', 'leafTree', 'leafTree', 'leafTreeBig'],
-    pine: ['pine', 'pine', 'pine', 'pineBig'],
+    pine: ['leafTree', 'leafTree', 'leafTree', 'leafTreeBig'],
     appleTree: ['fruitTree'],
     deadTree: ['deadTree'],
   };
