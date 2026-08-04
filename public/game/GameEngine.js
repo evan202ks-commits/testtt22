@@ -37,6 +37,16 @@ const HIT_DAMAGE = 34; // dégâts par coup — 3 coups (34*3=102) suffisent à 
 const RESPAWN_DELAY_MS = 3000; // délai avant réapparition après K.O.
 const INVULNERABLE_MS = 1000; // immunité juste après réapparition
 
+// Décalage du point de tir par rapport au point au sol du joueur (me.x,
+// me.y — voir game/Player.js), pour que la cacahuète parte visuellement
+// de la main/du pistolet plutôt que des pieds : relevée à hauteur de main
+// (voir EQUIP_HAND_Y_FRAC dans WorldRenderer, ~74% de la hauteur du
+// personnage depuis le haut) et légèrement avancée dans la direction du
+// tir. Cohérent avec CHAR_HEIGHT (88px) défini dans WorldRenderer, sans y
+// dépendre directement pour garder les deux modules indépendants.
+const MUZZLE_HEIGHT_OFFSET = 46; // hauteur main/arme au-dessus du point au sol
+const MUZZLE_FORWARD_OFFSET = 18; // avancée vers l'avant dans la direction visée
+
 window.Game.GameEngine = class GameEngine {
   constructor({ canvas, socket, getSessionState, onRosterChange, onHealthChange, onDeathChange, bubbleLayerEl }) {
     this.canvas = canvas;
@@ -249,9 +259,15 @@ window.Game.GameEngine = class GameEngine {
     dirX /= dist;
     dirY /= dist;
 
+    // Point de départ décalé vers la main tenant le lance-cacahuète (voir
+    // MUZZLE_HEIGHT_OFFSET / MUZZLE_FORWARD_OFFSET) plutôt que le point au
+    // sol du personnage — sinon la cacahuète semblait sortir des pieds.
+    const originX = me.x + dirX * MUZZLE_FORWARD_OFFSET;
+    const originY = me.y - MUZZLE_HEIGHT_OFFSET + dirY * MUZZLE_FORWARD_OFFSET;
+
     const shotId = `${session.myUserId}:${this._nextShotId++}`;
-    this._spawnProjectile({ id: shotId, ownerId: session.myUserId, x: me.x, y: me.y, dirX, dirY });
-    this.network.sendShoot({ x: me.x, y: me.y, dirX, dirY, shotId });
+    this._spawnProjectile({ id: shotId, ownerId: session.myUserId, x: originX, y: originY, dirX, dirY });
+    this.network.sendShoot({ x: originX, y: originY, dirX, dirY, shotId });
   }
 
   _spawnProjectile({ id, ownerId, x, y, dirX, dirY }) {
