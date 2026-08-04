@@ -51,12 +51,17 @@ window.Game = window.Game || {};
   const EQUIPPED_ATLASES = {
     peanut_launcher: {
       url: '/assets/sprites/character_atlas_peanut_launcher.png',
-      frameW: 309,
-      frameH: 235,
+      frameW: 260,
+      frameH: 230,
+      // Feuille "FACE / CÔTÉ / DOS / CÔTÉ (GAUCHE)" : la ligne "CÔTÉ" y
+      // dessine en fait le personnage tourné vers la GAUCHE de l'écran, et
+      // la ligne "CÔTÉ (GAUCHE)" le dessine tourné vers la DROITE — d'où ce
+      // mapping qui ne suit pas l'ordre visuel des libellés (vérifié à
+      // l'œil sur chaque ligne lors de la découpe de l'atlas).
       rowDown: 0,
-      rowRight: 1,
+      rowLeft: 1,
       rowUp: 2,
-      rowLeft: 3,
+      rowRight: 3,
       // Ancre horizontale (0..1, fraction de frameW) : position des pieds
       // du personnage dans la cellule, calée une fois pour toutes lors de
       // la génération de l'atlas (voir script de découpe) sur *tous* les
@@ -66,7 +71,7 @@ window.Game = window.Game || {};
       // la pose). Ancrer sur les pieds plutôt que sur la bbox visuelle
       // complète évite que le corps du personnage ne "saute"
       // horizontalement pendant l'animation de marche.
-      anchorXFrac: 146 / 309,
+      anchorXFrac: 130 / 260,
     },
   };
 
