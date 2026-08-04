@@ -3,277 +3,366 @@
 /**
  * game/render/WorldRenderer.js
  * ----------------------------------------------------------------------
- * Rendu 2D vu de dessus (top-down), entièrement en Canvas 2D natif :
- * plus de Three.js, plus de WebGL, plus de planètes/portails. Un seul
- * monde (voir game/render/WorldBuilder.js), une caméra qui suit le
- * joueur local (translation simple, jamais de rotation ni de zoom), un
- * décor peint une fois puis "posé" (drawImage) à chaque frame, et les
- * personnages affichés à partir de la feuille de sprites fournie par le
- * joueur (public/assets/sprites/character_atlas.png, grille 5 colonnes
- * x 4 lignes : idle + 4 frames de marche, une ligne par direction).
+ * Remplace l'ancien rendu "planètes flottantes dans l'espace" par un
+ * univers nature chaleureux (2.5D : sprites 2D animés + décor 3D léger).
+ * Expose une API volontairement proche de l'ancien renderer (resize /
+ * render / setActiveZone / followTarget / projectToScreen / avatars)
+ * pour que game/GameEngine.js reste organisé de la même façon.
  *
- * Expose la même API que l'ancien renderer (resize/setTime/ensureAvatar/
- * updateAvatar/followTarget/projectToScreen/render) pour que
- * game/GameEngine.js reste organisé de la même façon quelle que soit
- * l'implémentation interne du renderer.
- *
- * Chargé en <script> classique (voir index.html), après WorldBuilder.js
- * dont il dépend (window.Game.WorldBuilder) : aucun import ES, aucune
- * dépendance CDN, tout tourne avec ce que le navigateur fournit déjà.
+ * Chargé en <script type="module"> (voir index.html) : s'attache lui-même
+ * à window.Game.WorldRenderer une fois prêt, exactement comme les autres
+ * briques du jeu (chargées en script classique) s'attachent à
+ * window.Game.*.
  * ----------------------------------------------------------------------
  */
 
-window.Game = window.Game || {};
+import * as THREE from 'three';
+import { ZONES, getZoneById, buildZoneGroup } from './WorldBuilder.js';
+import { createCharacterAvatar, updateCharacterAvatar } from './CharacterAvatar.js';
+import { AssetManifest } from './AssetManifest.js';
 
-(function () {
-  const ATLAS_URL = '/assets/sprites/character_atlas.png';
-  const COLS = 5; // idle + 4 frames de marche
-  const ROWS = 4; // bas / gauche / dos / droite
-  const FRAME_W = 106;
-  const FRAME_H = 152;
+function makeRadialTexture({ inner = 'rgba(255,255,255,1)', outer = 'rgba(255,255,255,0)', size = 128 } = {}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, inner);
+  grad.addColorStop(1, outer);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
 
-  // Lignes de la feuille de sprites.
-  const ROW_DOWN = 0;
-  const ROW_LEFT = 1;
-  const ROW_UP = 2;
-  const ROW_RIGHT = 3;
+function makeGlowSprite(colorCss, size, opacity = 0.85) {
+  const tex = makeRadialTexture({ inner: colorCss, outer: 'rgba(0,0,0,0)' });
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(size, size, 1);
+  return sprite;
+}
 
-  // Taille à l'écran du personnage (pixels), proche du gabarit relatif
-  // qu'avait la créature dans l'ancienne version 3D par rapport aux arbres.
-  const CHAR_HEIGHT = 88;
-  const CHAR_WIDTH = CHAR_HEIGHT * (FRAME_W / FRAME_H);
+function makeSkyDome(radius = 1400) {
+  const geo = new THREE.SphereGeometry(radius, 20, 14);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const top = new THREE.Color(0x8ec6ea);
+  const horizon = new THREE.Color(0xfff2d6);
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / radius; // -1..1
+    const t = Math.max(0, Math.min(1, (y + 0.15) / 0.9));
+    const c = horizon.clone().lerp(top, t);
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false });
+  return new THREE.Mesh(geo, mat);
+}
 
-  let sharedAtlas = null;
-  function getSharedAtlas() {
-    if (!sharedAtlas) {
-      sharedAtlas = new Image();
-      sharedAtlas.src = ATLAS_URL;
-    }
-    return sharedAtlas;
+function makeCloud(rng) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ color: 0xfffaf0, transparent: true, opacity: 0.9 });
+  const puffs = 4 + Math.floor(rng() * 3);
+  for (let i = 0; i < puffs; i++) {
+    const s = 10 + rng() * 9;
+    const m = new THREE.Mesh(new THREE.SphereGeometry(s, 7, 6), mat);
+    m.position.set((i - puffs / 2) * 11 + rng() * 4, rng() * 4, rng() * 6);
+    m.scale.y = 0.55;
+    g.add(m);
+  }
+  return g;
+}
+
+function makeParticleField(texture, count, color) {
+  const positions = new Float32Array(count * 3);
+  const speeds = new Float32Array(count);
+  const sway = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    positions[i * 3] = (Math.random() - 0.5) * 220;
+    positions[i * 3 + 1] = Math.random() * 60;
+    positions[i * 3 + 2] = (Math.random() - 0.5) * 220;
+    speeds[i] = 3 + Math.random() * 4;
+    sway[i] = Math.random() * Math.PI * 2;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({
+    size: 2.4,
+    map: texture || makeRadialTexture({ inner: 'rgba(255,246,214,0.9)', outer: 'rgba(255,246,214,0)' }),
+    transparent: true,
+    depthWrite: false,
+    color: color ?? 0xffffff,
+    opacity: 0.85,
+  });
+  const points = new THREE.Points(geo, mat);
+  points.userData.speeds = speeds;
+  points.userData.sway = sway;
+  return points;
+}
+
+class WorldRenderer {
+  constructor(canvas, { bubbleLayerEl, bannerEl } = {}) {
+    this.canvas = canvas;
+    this.bubbleLayerEl = bubbleLayerEl || null;
+    this.bannerEl = bannerEl || null;
+
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.PerspectiveCamera(34, 1, 1, 3000);
+
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    this.time = 0;
+    this._camPos = new THREE.Vector3(0, 70, 46);
+    this._camLookAt = new THREE.Vector3(0, 6, 0);
+    this._cameraOffset = new THREE.Vector3(2, 62, 44);
+
+    this.assets = new AssetManifest();
+    this._zoneGroups = new Map(); // id -> { group, portalMeshes, swayItems, waterMeshes }
+    this._activeZoneId = null;
+    this._activeZoneRadius = 200;
+    this._activeZoneSeed = 0;
+    this._avatars = new Map(); // playerId -> THREE.Group
+
+    this._buildPersistentScene();
+
+    this.ready = this.assets.ready;
+    this.resize();
   }
 
-  /**
-   * Angle de déplacement (monde, atan2(dirX, dirY) — voir game/Player.js)
-   * -> ligne de sprite à afficher. La caméra ne tourne jamais (vue du
-   * dessus fixe), donc "est écran" = "est monde" et pas besoin de
-   * projection comme dans l'ancienne version 3D à caméra 3/4.
-   */
-  function directionRow(facingAngle) {
-    const deg = (facingAngle * 180) / Math.PI; // 0=bas,90=droite,180/-180=haut,-90=gauche
-    if (deg > -45 && deg <= 45) return ROW_DOWN;
-    if (deg > 45 && deg <= 135) return ROW_RIGHT;
-    if (deg > 135 || deg <= -135) return ROW_UP;
-    return ROW_LEFT;
+  _buildPersistentScene() {
+    this.scene.background = new THREE.Color(0xdcefc9);
+    this.scene.add(makeSkyDome());
+
+    this.sunDirection = new THREE.Vector3(-0.4, 0.7, -0.55).normalize();
+    this.sunSprite = makeGlowSprite('rgba(255,235,190,0.95)', 260, 1);
+    this.sunSprite.position.copy(this.sunDirection).multiplyScalar(850);
+    this.scene.add(this.sunSprite);
+
+    this.cloudsGroup = new THREE.Group();
+    const rng = (() => {
+      let a = 42;
+      return () => {
+        a = (a * 1664525 + 1013904223) >>> 0;
+        return a / 4294967296;
+      };
+    })();
+    for (let i = 0; i < 6; i++) {
+      const cloud = makeCloud(rng);
+      cloud.position.set((rng() - 0.5) * 700, 160 + rng() * 60, (rng() - 0.5) * 700 - 200);
+      cloud.userData.driftSpeed = 1.4 + rng() * 1.6;
+      this.cloudsGroup.add(cloud);
+    }
+    this.scene.add(this.cloudsGroup);
+
+    this.dust = makeParticleField(null, 55, 0xfff6d6);
+    this.scene.add(this.dust);
+    this.leaves = null; // construit à la demande si la zone active a weather:'leaves'
+
+    this.hemiLight = new THREE.HemisphereLight(0xfff2d6, 0xcfe6b0, 0.75);
+    this.scene.add(this.hemiLight);
+
+    this.sunLight = new THREE.DirectionalLight(0xfff2d6, 1.05);
+    this.sunLight.position.copy(this.sunDirection).multiplyScalar(200);
+    this.scene.add(this.sunLight);
+
+    this.ambientLight = new THREE.AmbientLight(0xcfe6b0, 0.5);
+    this.scene.add(this.ambientLight);
   }
 
-  class WorldRenderer {
-    constructor(canvas, { bubbleLayerEl } = {}) {
-      this.canvas = canvas;
-      this.ctx = canvas.getContext('2d');
-      this.bubbleLayerEl = bubbleLayerEl || null;
+  // ------------------------------------------------------------------
+  resize() {
+    const parent = this.canvas.parentElement;
+    let w = this.canvas.clientWidth || this.canvas.offsetWidth;
+    let h = this.canvas.clientHeight || this.canvas.offsetHeight;
+    if (!w && parent) w = parent.clientWidth || parent.offsetWidth;
+    if (!h && parent) h = parent.clientHeight || parent.offsetHeight;
+    if (!w) w = window.innerWidth;
+    if (!h) h = window.innerHeight;
 
-      this.atlas = getSharedAtlas();
+    this.width = w;
+    this.height = h;
+    this.camera.aspect = w / Math.max(1, h);
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(w, h, false);
+  }
 
-      const built = window.Game.WorldBuilder.buildWorld();
-      this.world = built.world;
-      this.ground = built.ground;
-      this.props = built.props;
+  setTime(t) {
+    this.time = t;
+  }
 
-      this.time = 0;
-      this.width = 0;
-      this.height = 0;
-      this._dpr = Math.min(window.devicePixelRatio || 1, 2);
+  // ------------------------------------------------------------------
+  // Zones
+  // ------------------------------------------------------------------
+  _ensureZoneGroup(zoneId) {
+    if (this._zoneGroups.has(zoneId)) return this._zoneGroups.get(zoneId);
+    const zone = getZoneById(zoneId);
+    const built = buildZoneGroup(zone, this.assets);
+    built.group.visible = false;
+    this.scene.add(built.group);
+    this._zoneGroups.set(zoneId, built);
+    return built;
+  }
 
-      this._camX = this.world.spawn.x;
-      this._camY = this.world.spawn.y;
-
-      this._avatars = new Map(); // playerId -> { color, isLocal, frame: {col,row}, bobY }
-
-      this.resize();
+  /** Change la zone active : construit son décor si besoin (mise en
+   * cache), masque les autres, ajuste l'ambiance (fond/brume/lumière). */
+  setActiveZone(zoneId) {
+    const zone = getZoneById(zoneId);
+    if (this._activeZoneId && this._zoneGroups.has(this._activeZoneId)) {
+      this._zoneGroups.get(this._activeZoneId).group.visible = false;
     }
+    const built = this._ensureZoneGroup(zoneId);
+    built.group.visible = true;
+    this._activeZoneId = zoneId;
+    this._activeZoneRadius = zone.radius;
+    this._activeZoneSeed = zone.seed || 0;
+    this._applyAtmosphere(zone);
 
-    // ------------------------------------------------------------------
-    // Cycle de vie / redimensionnement.
-    // ------------------------------------------------------------------
-    resize() {
-      const parent = this.canvas.parentElement;
-      let w = this.canvas.clientWidth || this.canvas.offsetWidth;
-      let h = this.canvas.clientHeight || this.canvas.offsetHeight;
-      if (!w && parent) w = parent.clientWidth || parent.offsetWidth;
-      if (!h && parent) h = parent.clientHeight || parent.offsetHeight;
-      if (!w) w = window.innerWidth;
-      if (!h) h = window.innerHeight;
-
-      this.width = w;
-      this.height = h;
-      this.canvas.width = Math.round(w * this._dpr);
-      this.canvas.height = Math.round(h * this._dpr);
-      this.ctx.setTransform(this._dpr, 0, 0, this._dpr, 0, 0);
+    if (zone.weather === 'leaves' && !this.leaves) {
+      this.leaves = makeParticleField(this.assets.getVfxTexture('leaf'), 40, 0xffffff);
+      this.leaves.material.size = 4.2;
+      this.scene.add(this.leaves);
     }
+    if (this.leaves) this.leaves.visible = zone.weather === 'leaves';
 
-    setTime(t) {
-      this.time = t;
+    if (this.bannerEl) {
+      this.bannerEl.textContent = `${zone.name} — ${zone.subtitle}`;
+      this.bannerEl.classList.remove('zone-banner--show');
+      void this.bannerEl.offsetWidth;
+      this.bannerEl.classList.add('zone-banner--show');
     }
+    return { zone, portalMeshes: built.portalMeshes };
+  }
 
-    // ------------------------------------------------------------------
-    // Avatars joueurs
-    // ------------------------------------------------------------------
-    ensureAvatar(id, { color, isLocal }) {
-      if (this._avatars.has(id)) return this._avatars.get(id);
-      const avatar = { color, isLocal, frame: { col: 0, row: ROW_DOWN }, bobY: 0 };
-      this._avatars.set(id, avatar);
-      return avatar;
-    }
+  _applyAtmosphere(zone) {
+    this.scene.fog = new THREE.FogExp2(new THREE.Color(zone.fogColor), zone.fogDensity);
+    this.hemiLight.color.set(zone.sunColor);
+    this.hemiLight.groundColor.set(zone.ambientColor);
+    this.sunLight.color.set(zone.sunColor);
+    this.ambientLight.color.set(zone.ambientColor);
+  }
 
-    removeAvatar(id) {
-      this._avatars.delete(id);
-    }
+  // ------------------------------------------------------------------
+  // Avatars joueurs
+  // ------------------------------------------------------------------
+  ensureAvatar(id, { color, isLocal }) {
+    if (this._avatars.has(id)) return this._avatars.get(id);
+    const avatar = createCharacterAvatar({ assets: this.assets, color, isLocal });
+    this.scene.add(avatar);
+    this._avatars.set(id, avatar);
+    return avatar;
+  }
 
-    // Un seul monde désormais : tous les joueurs y sont toujours visibles.
-    setAvatarVisible() {}
+  removeAvatar(id) {
+    const avatar = this._avatars.get(id);
+    if (!avatar) return;
+    this.scene.remove(avatar);
+    this._avatars.delete(id);
+  }
 
-    updateAvatar(id, player) {
-      const avatar = this._avatars.get(id);
-      if (!avatar) return;
+  setAvatarVisible(id, visible) {
+    const avatar = this._avatars.get(id);
+    if (avatar) avatar.visible = visible;
+  }
 
-      const t = player.animTime || 0;
-      // speedFactor (~1 en marche, ~1.8 en course, voir game/Player.js)
-      // amplifie et accélère le rebond du sprite pendant la course.
-      const factor = player.isMoving ? (player.speedFactor || 1) : 0;
-      const bobSpeed = player.isMoving ? 7.5 + factor * 3 : 2.4;
-      const bobHeight = player.isMoving ? 2.6 + factor * 2 : 1.2;
-      avatar.bobY = Math.abs(Math.sin(t * bobSpeed)) * bobHeight;
+  updateAvatar(id, player, dt) {
+    const avatar = this._avatars.get(id);
+    if (!avatar) return;
+    const groundY = window.Game.mathUtils.zoneGroundHeight(player.x, player.y, this._activeZoneRadius, this._activeZoneSeed);
+    updateCharacterAvatar(avatar, player, groundY, dt);
+  }
 
-      const frame = avatar.frame;
-      let row = frame.row;
-      if (player.isMoving) row = directionRow(player.facingAngle);
-      const col = player.isMoving ? 1 + Math.floor((t * 6) % 4) : 0;
-      frame.col = col;
-      frame.row = row;
-    }
+  // ------------------------------------------------------------------
+  // Caméra suiveuse — vue élevée façon "jeu de simulation/exploration",
+  // pas de contrôle souris (uniquement le clavier, comme avant).
+  // ------------------------------------------------------------------
+  followTarget(x, y, dt) {
+    const groundY = window.Game.mathUtils.zoneGroundHeight(x, y, this._activeZoneRadius, this._activeZoneSeed);
+    const targetPos = new THREE.Vector3(x + this._cameraOffset.x, groundY + this._cameraOffset.y, y + this._cameraOffset.z);
+    const targetLookAt = new THREE.Vector3(x, groundY + 4, y);
+    const rate = 4.5;
+    const t = 1 - Math.exp(-rate * dt);
+    this._camPos.lerp(targetPos, t);
+    this._camLookAt.lerp(targetLookAt, t);
+    this.camera.position.copy(this._camPos);
+    this.camera.lookAt(this._camLookAt);
+  }
 
-    // ------------------------------------------------------------------
-    // Caméra suiveuse (translation simple, jamais de rotation/zoom — la
-    // vue reste toujours strictement du dessus, seul le déplacement au
-    // clavier fait bouger la scène).
-    // ------------------------------------------------------------------
-    followTarget(x, y, dt) {
-      const rate = 6;
-      const t = 1 - Math.exp(-rate * dt);
-      this._camX = window.Game.mathUtils.lerp(this._camX, x, t);
-      this._camY = window.Game.mathUtils.lerp(this._camY, y, t);
-    }
+  projectToScreen(x, y, worldHeight = 15) {
+    const groundY = window.Game.mathUtils.zoneGroundHeight(x, y, this._activeZoneRadius, this._activeZoneSeed);
+    const v = new THREE.Vector3(x, groundY + worldHeight, y).project(this.camera);
+    const visible = v.z < 1;
+    return {
+      x: (v.x * 0.5 + 0.5) * this.width,
+      y: (-v.y * 0.5 + 0.5) * this.height,
+      visible,
+    };
+  }
 
-    worldToScreen(x, y) {
-      return { x: x - this._camX + this.width / 2, y: y - this._camY + this.height / 2 };
-    }
+  // ------------------------------------------------------------------
+  // Rendu
+  // ------------------------------------------------------------------
+  render(dt) {
+    this.time += dt;
 
-    /** Projette un point monde vers des coordonnées écran en pixels, pour
-     * positionner les bulles de chat HTML par-dessus le canvas. */
-    projectToScreen(x, y, worldHeight = 0) {
-      const p = this.worldToScreen(x, y);
-      return { x: p.x, y: p.y - worldHeight, visible: true };
-    }
-
-    // ------------------------------------------------------------------
-    // Rendu
-    // ------------------------------------------------------------------
-    _drawGround() {
-      const topLeft = this.worldToScreen(-this.world.halfWidth, -this.world.halfHeight);
-      this.ctx.drawImage(this.ground, topLeft.x, topLeft.y);
-    }
-
-    _drawShadow(screenX, screenY, radiusX) {
-      this.ctx.save();
-      this.ctx.globalAlpha = 0.22;
-      this.ctx.fillStyle = '#000000';
-      this.ctx.beginPath();
-      this.ctx.ellipse(screenX, screenY, radiusX, radiusX * 0.4, 0, 0, Math.PI * 2);
-      this.ctx.fill();
-      this.ctx.restore();
-    }
-
-    _drawProp(prop) {
-      const p = this.worldToScreen(prop.x, prop.y);
-      this._drawShadow(p.x, p.y, prop.worldW * 0.28);
-      this.ctx.drawImage(
-        prop.canvas,
-        p.x - prop.worldW / 2,
-        p.y - prop.worldH,
-        prop.worldW,
-        prop.worldH
-      );
-    }
-
-    _drawAvatar(id, player) {
-      const avatar = this._avatars.get(id);
-      if (!avatar) return;
-      const p = this.worldToScreen(player.x, player.y);
-
-      this._drawShadow(p.x, p.y, CHAR_WIDTH * 0.32);
-
-      // Anneau au sol coloré = identité du joueur.
-      this.ctx.save();
-      this.ctx.globalAlpha = avatar.isLocal ? 0.6 : 0.42;
-      this.ctx.strokeStyle = avatar.isLocal ? '#ffffff' : avatar.color;
-      this.ctx.lineWidth = 3;
-      this.ctx.beginPath();
-      this.ctx.ellipse(p.x, p.y, CHAR_WIDTH * 0.34, CHAR_WIDTH * 0.16, 0, 0, Math.PI * 2);
-      this.ctx.stroke();
-      this.ctx.restore();
-
-      if (this.atlas.complete && this.atlas.naturalWidth > 0) {
-        const { col, row } = avatar.frame;
-        this.ctx.drawImage(
-          this.atlas,
-          col * FRAME_W, row * FRAME_H, FRAME_W, FRAME_H,
-          p.x - CHAR_WIDTH / 2, p.y - CHAR_HEIGHT - avatar.bobY, CHAR_WIDTH, CHAR_HEIGHT
-        );
-      } else {
-        // Filet de sécurité pendant le chargement de l'image : un simple
-        // disque de la couleur du joueur, pour que la scène reste lisible.
-        this.ctx.fillStyle = avatar.color;
-        this.ctx.beginPath();
-        this.ctx.arc(p.x, p.y - CHAR_HEIGHT / 2, CHAR_WIDTH * 0.32, 0, Math.PI * 2);
-        this.ctx.fill();
+    // Vent : décor 3D (arbres/buissons tournent doucement) + flore 2D
+    // (rotation dans le plan du sprite) — "herbe qui bouge, arbres qui
+    // oscillent".
+    const active = this._activeZoneId && this._zoneGroups.get(this._activeZoneId);
+    if (active) {
+      for (const item of active.swayItems) {
+        const a = Math.sin(this.time * item.speed + item.phase) * item.amount;
+        if (item.isFlora) item.obj.material.rotation = a;
+        else item.obj.rotation.z = a;
       }
-    }
-
-    render(dt, players) {
-      const ctx = this.ctx;
-      ctx.clearRect(0, 0, this.width, this.height);
-      ctx.fillStyle = '#3a2b52';
-      ctx.fillRect(0, 0, this.width, this.height);
-
-      this._drawGround();
-
-      // Tri par profondeur (peintre) : décor (déjà trié par y à la
-      // construction) fusionné avec les joueurs (dynamiques) triés eux
-      // aussi par y, pour que chacun s'affiche devant/derrière le bon
-      // arbre selon sa position verticale à l'écran.
-      const dynamic = [];
-      if (players) {
-        for (const [id, player] of players) dynamic.push({ y: player.y, id, player });
-      }
-      dynamic.sort((a, b) => a.y - b.y);
-
-      let pi = 0;
-      let di = 0;
-      while (pi < this.props.length || di < dynamic.length) {
-        const prop = this.props[pi];
-        const dyn = dynamic[di];
-        if (prop && (!dyn || prop.y <= dyn.y)) {
-          this._drawProp(prop);
-          pi++;
-        } else {
-          this._drawAvatar(dyn.id, dyn.player);
-          di++;
+      for (const water of active.waterMeshes) {
+        const frames = water.userData.frames;
+        if (frames && frames.length > 1) {
+          const idx = Math.floor(this.time * water.userData.fps) % frames.length;
+          if (frames[idx] && water.material.map !== frames[idx]) {
+            water.material.map = frames[idx];
+            water.material.needsUpdate = true;
+          }
         }
       }
     }
+
+    // Nuages : dérive lente, boucle horizontale.
+    for (const cloud of this.cloudsGroup.children) {
+      cloud.position.x += cloud.userData.driftSpeed * dt;
+      if (cloud.position.x > 420) cloud.position.x = -420;
+    }
+
+    // Poussière ambiante : montée lente + boucle.
+    this._advanceParticles(this.dust, dt, 60, true);
+    if (this.leaves && this.leaves.visible) this._advanceParticles(this.leaves, dt, 55, false);
+
+    this.sunSprite.material.opacity = 0.9 + Math.sin(this.time * 0.4) * 0.06;
+
+    this.renderer.render(this.scene, this.camera);
   }
 
-  window.Game.WorldRenderer = WorldRenderer;
-  window.Game.__worldRendererReady = true;
-  window.dispatchEvent(new Event('game:worldrenderer-ready'));
-})();
+  _advanceParticles(points, dt, ceilingY, rising) {
+    const pos = points.geometry.attributes.position;
+    const speeds = points.userData.speeds;
+    const sway = points.userData.sway;
+    for (let i = 0; i < speeds.length; i++) {
+      let y = pos.getY(i) + (rising ? 1 : -1) * speeds[i] * dt;
+      let x = pos.getX(i) + Math.sin(this.time * 1.2 + sway[i]) * dt * 2.2;
+      if (rising && y > ceilingY) y = 0;
+      if (!rising && y < 0) y = ceilingY;
+      pos.setY(i, y);
+      pos.setX(i, x);
+    }
+    pos.needsUpdate = true;
+  }
+}
+
+window.Game = window.Game || {};
+window.Game.WorldRenderer = WorldRenderer;
+window.Game.Zones = ZONES;

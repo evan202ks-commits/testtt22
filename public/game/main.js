@@ -33,6 +33,7 @@
     const btnCloseInventory = document.getElementById('btnCloseInventory');
     const chatBubblesToggle = document.getElementById('chatBubblesToggle');
     const worldBubbleLayer = document.getElementById('worldBubbleLayer');
+    const zoneBanner = document.getElementById('zoneBanner');
     const CHAT_BUBBLES_STORAGE_KEY = 'realtime-infra:chatBubblesEnabled';
 
     if (!gameOverlay || !chatOverlay || !screenRoom || !canvas || typeof socket === 'undefined' || typeof state === 'undefined') {
@@ -64,6 +65,7 @@
         if (hudCount) hudCount.textContent = String(count);
       },
       bubbleLayerEl: worldBubbleLayer,
+      bannerEl: zoneBanner,
     });
 
     const inventory = new window.Game.Inventory({
