@@ -72,6 +72,20 @@ window.Game = window.Game || {};
       // complète évite que le corps du personnage ne "saute"
       // horizontalement pendant l'animation de marche.
       anchorXFrac: 130 / 260,
+      // Facteur d'échelle appliqué à la hauteur de dessin (en plus de
+      // CHAR_HEIGHT). Nécessaire car dans CET atlas le personnage occupe
+      // une part plus petite de la case (~79% de frameH, contre ~94% pour
+      // character_atlas.png) : la case a été générée avec plus de marge
+      // au-dessus de la tête pour laisser de la place à l'arme/aux bras
+      // levés dans certaines poses. Sans ce facteur, dessiner à la même
+      // hauteur de case (CHAR_HEIGHT) donne un personnage visuellement
+      // plus petit une fois l'arme équipée. Valeur calibrée en mesurant
+      // la hauteur du contenu opaque (tête→pieds, hors arme) sur les 5
+      // frames de la ligne "bas" des deux atlas :
+      //   normal  : ~143px de contenu / 152px de case = 0.941
+      //   armé    : ~184px de contenu / 230px de case = 0.799
+      //   scale = 0.941 / 0.799 ≈ 1.177
+      sizeScale: 1.177,
     },
   };
 
@@ -340,8 +354,13 @@ window.Game = window.Game || {};
         // hauteur diffère de celui (plus étroit) de l'atlas de base : on
         // calcule une largeur d'affichage dédiée à partir de son propre
         // ratio, pour ne pas écraser/étirer le sprite horizontalement.
-        // Hauteur inchangée pour garder le personnage à la même taille.
-        const drawW = CHAR_HEIGHT * (fw / fh);
+        // On applique aussi sizeScale à la hauteur : la case de cet atlas
+        // a plus de marge vide au-dessus de la tête que celle de l'atlas
+        // de base, donc dessiner à la même hauteur brute (CHAR_HEIGHT)
+        // rendrait le personnage visiblement plus petit une fois armé
+        // (voir commentaire sizeScale plus haut).
+        const drawH = CHAR_HEIGHT * (equippedAtlasDef.sizeScale || 1);
+        const drawW = drawH * (fw / fh);
         // Ancrage horizontal sur les pieds (anchorXFrac, voir plus haut) —
         // et non le centre de la cellule — pour que le corps reste fixe
         // pendant que l'arme et les bras/jambes bougent d'une frame à
@@ -350,7 +369,7 @@ window.Game = window.Game || {};
         this.ctx.drawImage(
           equippedAtlasImg,
           col * fw, row * fh, fw, fh,
-          p.x - drawW * anchorXFrac, p.y - CHAR_HEIGHT - avatar.bobY, drawW, CHAR_HEIGHT
+          p.x - drawW * anchorXFrac, p.y - drawH - avatar.bobY, drawW, drawH
         );
       } else if (this.atlas.complete && this.atlas.naturalWidth > 0) {
         const { col, row } = avatar.frame;
