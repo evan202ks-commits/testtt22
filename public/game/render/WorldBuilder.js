@@ -138,36 +138,168 @@ window.Game = window.Game || {};
     else _groundTextureReadyCallbacks.push(cb);
   }
 
-  // Mosaïque des 4 tons d'herbe (bien plus de "moyenne", quelques taches
-  // de "claire"/"sombre", "dense" plus rare — même esprit que la fiche de
-  // référence) construite une seule fois puis répétée en CanvasPattern.
+  // Mosaïque des 4 tons d'herbe avec transitions douces (blending par bruit)
+  // construite une seule fois puis répétée en CanvasPattern.
   // Seed fixe : même mosaïque à chaque partie, comme le reste du décor.
+  //
+  // Principe : on construit d'abord chaque texture en CanvasPattern sur un
+  // grand canvas intermédiaire, puis on les composite en utilisant un masque
+  // de bruit (valeur de Perlin simplifié) qui varie doucement dans l'espace
+  // — aucune frontière nette entre les tons, tout se fond naturellement.
   let _grassPatternCanvas = null;
   function getGrassPatternCanvas() {
     if (_grassPatternCanvas) return _grassPatternCanvas;
     if (!_groundTexturesLoaded) return null;
+
     const tw = GROUND_TEXTURE_DEFS.grassMoyenne.w;
     const th = GROUND_TEXTURE_DEFS.grassMoyenne.h;
-    const pool = [
-      _groundTextureImages.grassMoyenne, _groundTextureImages.grassMoyenne,
-      _groundTextureImages.grassMoyenne, _groundTextureImages.grassMoyenne,
-      _groundTextureImages.grassClaire, _groundTextureImages.grassClaire,
-      _groundTextureImages.grassSombre, _groundTextureImages.grassSombre,
-      _groundTextureImages.grassDense,
-    ];
-    const cols = 3;
-    const rows = 3;
+
+    // Taille du canvas de mosaïque — assez grand pour que la répétition
+    // ne se voit pas trop, et multiple entier des tuiles pour éviter les
+    // raccords de bord.
+    const cols = 6;
+    const rows = 6;
+    const W = tw * cols;
+    const H = th * rows;
+
     const canvas = document.createElement('canvas');
-    canvas.width = tw * cols;
-    canvas.height = th * rows;
+    canvas.width = W;
+    canvas.height = H;
     const gctx = canvas.getContext('2d');
-    const rng = mathUtils.mulberry32(20260805);
-    for (let gy = 0; gy < rows; gy++) {
-      for (let gx = 0; gx < cols; gx++) {
-        const img = pool[Math.floor(rng() * pool.length)];
-        gctx.drawImage(img, gx * tw, gy * th, tw, th);
+
+    // --- Bruit de valeur simple (Value Noise 2D) ---
+    // Grille de valeurs aléatoires interpolées bilinéairement — donne un
+    // champ de valeurs continu [0,1] qui varie doucement dans l'espace.
+    // On utilise deux fréquences (grosse tache + détail fin) combinées.
+    function valueNoise(gridW, gridH, seed) {
+      const rng = mathUtils.mulberry32(seed);
+      const grid = [];
+      for (let gy = 0; gy <= gridH; gy++) {
+        grid[gy] = [];
+        for (let gx = 0; gx <= gridW; gx++) {
+          grid[gy][gx] = rng();
+        }
+      }
+      // Interpolation douce (smoothstep)
+      const smooth = (t) => t * t * (3 - 2 * t);
+      return function sample(nx, ny) {
+        // nx, ny dans [0, gridW] x [0, gridH]
+        const ix = Math.floor(nx) % gridW;
+        const iy = Math.floor(ny) % gridH;
+        const fx = nx - Math.floor(nx);
+        const fy = ny - Math.floor(ny);
+        const ix1 = (ix + 1) % gridW;
+        const iy1 = (iy + 1) % gridH;
+        const sx = smooth(fx);
+        const sy = smooth(fy);
+        const v00 = grid[iy][ix];
+        const v10 = grid[iy][ix1];
+        const v01 = grid[iy1][ix];
+        const v11 = grid[iy1][ix1];
+        return v00 + (v10 - v00) * sx + (v01 - v00) * sy + (v00 - v10 - v01 + v11) * sx * sy;
+      };
+    }
+
+    // Deux couches de bruit : une grande (transitions molles) + une petite
+    // (variation de détail) combinées.
+    const GRID_COARSE = 5;  // cellules de bruit sur toute la mosaïque
+    const GRID_FINE   = 12; // cellules de bruit fines
+    const noiseA = valueNoise(GRID_COARSE, GRID_COARSE, 20260805);
+    const noiseB = valueNoise(GRID_FINE,   GRID_FINE,   20260806);
+    const noiseC = valueNoise(GRID_COARSE, GRID_COARSE, 20260807); // 2e dimension de variation
+
+    // Calcule la valeur de bruit finale en un point (px, py) [0..W] x [0..H]
+    // → renvoie {n, m} : n ∈ [0,1] pilote quel ton, m ∈ [0,1] pilote claire/sombre
+    function noiseAt(px, py) {
+      const nx = (px / W) * GRID_COARSE;
+      const ny = (py / H) * GRID_COARSE;
+      const nxf = (px / W) * GRID_FINE;
+      const nyf = (py / H) * GRID_FINE;
+      const n = noiseA(nx, ny) * 0.70 + noiseB(nxf, nyf) * 0.30;
+      const m = noiseC(nx, ny);
+      return { n, m };
+    }
+
+    // Fonction de transition douce (smoothstep) entre a et b pour t ∈ [a,b]
+    function smoothstep(edge0, edge1, x) {
+      const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+      return t * t * (3 - 2 * t);
+    }
+
+    // --- Étape 1 : peindre un fond avec grassMoyenne (base) ---
+    const basePattern = gctx.createPattern(_groundTextureImages.grassMoyenne, 'repeat');
+    gctx.fillStyle = basePattern;
+    gctx.fillRect(0, 0, W, H);
+
+    // --- Étape 2 : compositer les autres tons par-dessus avec globalAlpha ---
+    // Stratégie : pour chaque pixel on calcule l'alpha de chaque couche de
+    // texture via le bruit; on simule ça en découpant le canvas en tuiles
+    // suffisamment petites (4×4 px) et en variant l'opacité par zone.
+    // C'est l'approche "offline render" classique pour le pixel art.
+    const STEP = 4; // résolution du blendig (pixels par cellule de calcul)
+
+    // Textures à superposer par-dessus la base moyene :
+    //   grassClaire → zones où n > 0.55 && m > 0.5
+    //   grassSombre → zones où n < 0.35
+    //   grassDense  → zones où n > 0.68 && m < 0.4
+    const layers = [
+      {
+        img: _groundTextureImages.grassSombre,
+        // alpha : monte quand n est bas
+        alpha: ({ n }) => smoothstep(0.45, 0.20, n),
+      },
+      {
+        img: _groundTextureImages.grassClaire,
+        // alpha : monte quand n est haut et m est haut
+        alpha: ({ n, m }) => smoothstep(0.52, 0.75, n) * smoothstep(0.38, 0.65, m),
+      },
+      {
+        img: _groundTextureImages.grassDense,
+        // alpha : monte quand n est très haut et m est bas
+        alpha: ({ n, m }) => smoothstep(0.60, 0.82, n) * smoothstep(0.55, 0.28, m),
+      },
+    ];
+
+    // Pour chaque couche on balaie le canvas par tuiles de STEP×STEP px
+    for (const layer of layers) {
+      const pattern = gctx.createPattern(layer.img, 'repeat');
+      // Créer un canvas temporaire pour la couche
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = W;
+      tmpCanvas.height = H;
+      const tctx = tmpCanvas.getContext('2d');
+      // Remplir entièrement avec la texture
+      tctx.fillStyle = tctx.createPattern(layer.img, 'repeat');
+      tctx.fillRect(0, 0, W, H);
+      // Appliquer le masque alpha cellule par cellule
+      for (let py = 0; py < H; py += STEP) {
+        for (let px = 0; px < W; px += STEP) {
+          const noise = noiseAt(px + STEP / 2, py + STEP / 2);
+          const a = layer.alpha(noise);
+          if (a < 0.004) continue; // transparent, rien à faire
+          gctx.save();
+          gctx.globalAlpha = a;
+          // Dessiner juste ce pixel de la texture (déjà dans tmpCanvas)
+          gctx.drawImage(tmpCanvas, px, py, STEP, STEP, px, py, STEP, STEP);
+          gctx.restore();
+        }
       }
     }
+
+    // --- Étape 3 : léger vignettage intérieur pour casser l'effet trop répétitif ---
+    // (optionnel — très discret)
+    const vctx = canvas.getContext('2d');
+    const rng2 = mathUtils.mulberry32(20260808);
+    vctx.save();
+    vctx.globalAlpha = 0.04;
+    for (let i = 0; i < 40; i++) {
+      vctx.fillStyle = rng2() > 0.5 ? '#ffffff' : '#000000';
+      vctx.beginPath();
+      vctx.arc(rng2() * W, rng2() * H, 6 + rng2() * 18, 0, Math.PI * 2);
+      vctx.fill();
+    }
+    vctx.restore();
+
     _grassPatternCanvas = canvas;
     return canvas;
   }
