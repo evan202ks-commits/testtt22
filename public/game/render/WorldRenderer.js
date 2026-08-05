@@ -208,6 +208,15 @@ window.Game = window.Game || {};
       this.ground = built.ground;
       this.props = built.props;
 
+      // Les textures d'herbe/falaise (voir WorldBuilder.js) se chargent de
+      // façon asynchrone : le tout premier `ground` ci-dessus peut donc
+      // avoir été peint avec les anciens aplats de secours. Dès qu'elles
+      // sont prêtes, on reconstruit le sol (déterministe, même seed) pour
+      // le remplacer par la version texturée — les props ne changent pas.
+      window.Game.WorldBuilder.onGroundTexturesReady(() => {
+        this.ground = window.Game.WorldBuilder.buildWorld().ground;
+      });
+
       this.time = 0;
       this.width = 0;
       this.height = 0;
