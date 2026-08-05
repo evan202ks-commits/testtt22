@@ -93,20 +93,20 @@ window.Game = window.Game || {};
 
   // ------------------------------------------------------------------
   // Textures de sol (fournies par l'utilisateur — voir fiche des textures
-  // d'environnement) : 4 tons d'herbe + 1 paroi de falaise, découpés
-  // depuis la planche de référence. Utilisées en CanvasPattern (répétées)
-  // pour peindre le sol du monde (voir buildGroundCanvas), à la place des
-  // aplats de couleur d'origine. Chargées de façon asynchrone comme les
-  // sprites d'arbres ; buildGroundCanvas retombe sur les anciens dégradés
-  // tant qu'elles ne sont pas prêtes, et onGroundTexturesReady permet à
-  // WorldRenderer.js de redessiner le sol une fois le chargement terminé.
+  // d'environnement) : 4 tons d'herbe, découpés depuis la planche de
+  // référence (pas de texture de falaise : aplat de couleur, voir plus
+  // bas). Utilisées en CanvasPattern (répétées) pour peindre l'herbe du
+  // monde (voir buildGroundCanvas), à la place de l'aplat d'origine.
+  // Chargées de façon asynchrone comme les sprites d'arbres ;
+  // buildGroundCanvas retombe sur l'ancien dégradé tant qu'elles ne sont
+  // pas prêtes, et onGroundTexturesReady permet à WorldRenderer.js de
+  // redessiner le sol une fois le chargement terminé.
   // ------------------------------------------------------------------
   const GROUND_TEXTURE_DEFS = {
     grassClaire: { url: withVersion('/assets/sprites/textures/grass_claire.png'), w: 106, h: 105 },
     grassMoyenne: { url: withVersion('/assets/sprites/textures/grass_moyenne.png'), w: 106, h: 105 },
     grassSombre: { url: withVersion('/assets/sprites/textures/grass_sombre.png'), w: 106, h: 105 },
     grassDense: { url: withVersion('/assets/sprites/textures/grass_dense.png'), w: 106, h: 105 },
-    cliffWall: { url: withVersion('/assets/sprites/textures/cliff_wall.png'), w: 100, h: 84 },
   };
 
   const _groundTextureImages = {};
@@ -857,17 +857,10 @@ window.Game = window.Game || {};
     ctx.stroke();
     ctx.restore();
 
-    // Falaise (terre) : texture pixel art (paroi rocheuse + liseré
-    // d'herbe fournie par l'utilisateur), déroulée tranche par tranche
-    // autour du contour de l'île plutôt qu'appliquée à plat — chaque fine
-    // tranche (même découpage angulaire que cliffPts/grassPts) est
-    // tournée pour que le liseré d'herbe du haut de la texture touche
-    // exactement le bord de l'herbe (grassRadius) et que la base rocheuse
-    // pointe vers l'eau, quel que soit l'endroit de la côte. L'aplat de
-    // couleur est peint en dessous dans tous les cas : il sert de
-    // filet de sécurité tant que l'image n'est pas chargée (voir
-    // onGroundTexturesReady dans WorldRenderer.js) et comble les micro-
-    // interstices entre tranches consécutives une fois l'image prête.
+    // Falaise (terre) : aplat de couleur avec petites strates peintes à
+    // la main (pas de texture image ici — retiré à la demande, voir
+    // getGrassPatternCanvas plus bas pour l'herbe, qui elle reste
+    // texturée).
     pathFrom(cliffPts);
     ctx.fillStyle = hex(world.cliffColor);
     ctx.fill();
@@ -875,56 +868,21 @@ window.Game = window.Game || {};
     ctx.strokeStyle = shade(world.cliffColor, -0.35);
     ctx.stroke();
 
-    const cliffImg = _groundTexturesLoaded ? _groundTextureImages.cliffWall : null;
-    if (cliffImg) {
-      ctx.save();
-      pathFrom(cliffPts);
-      ctx.clip();
-      for (let i = 0; i < steps; i++) {
-        const [gx1, gy1] = grassPts[i];
-        const [gx2, gy2] = grassPts[i + 1];
-        const [ox1, oy1] = cliffPts[i];
-        const [ox2, oy2] = cliffPts[i + 1];
-        const midX = (gx1 + gx2) / 2;
-        const midY = (gy1 + gy2) / 2;
-        const segLen = Math.hypot(gx2 - gx1, gy2 - gy1);
-        const bandWidth = (Math.hypot(ox1 - gx1, oy1 - gy1) + Math.hypot(ox2 - gx2, oy2 - gy2)) / 2;
-        const theta = ((i + 0.5) / steps) * Math.PI * 2;
-        ctx.save();
-        ctx.translate(midX, midY);
-        // theta - π/2 : aligne l'axe "largeur image" (colonnes, gauche->
-        // droite) sur la tangente à la côte, et l'axe "hauteur image"
-        // (lignes, herbe->roche) sur la normale sortante (voir dérivation
-        // dans le commentaire du composant plus haut) — donc le haut de
-        // la texture (liseré d'herbe) tombe pile sur grassRadius.
-        ctx.rotate(theta - Math.PI / 2);
-        // Léger débord (+3px largeur, +2px hauteur) pour ne laisser aucun
-        // interstice visible entre deux tranches voisines, la courbe
-        // faisant que des rectangles strictement jointifs ne se touchent
-        // pas exactement pixel à pixel.
-        ctx.drawImage(cliffImg, -segLen / 2 - 1.5, -1, segLen + 3, bandWidth + 2);
-        ctx.restore();
-      }
-      ctx.restore();
-    } else {
-      // Petites strates de secours (avant chargement de la texture) :
-      // simple hachure sur l'aplat, remplacée par la vraie texture dès
-      // qu'elle est prête.
-      ctx.save();
-      pathFrom(cliffPts);
-      ctx.clip();
-      ctx.strokeStyle = shade(world.cliffColor, -0.22);
-      ctx.lineWidth = 3;
-      for (let i = 0; i < cliffPts.length; i += 3) {
-        const [x1, y1] = cliffPts[i];
-        const [x2, y2] = grassPts[i];
-        ctx.beginPath();
-        ctx.moveTo(mix(x1, x2, 0.3), mix(y1, y2, 0.3));
-        ctx.lineTo(mix(x1, x2, 0.55), mix(y1, y2, 0.55));
-        ctx.stroke();
-      }
-      ctx.restore();
+    // Petites strates sur la bande de falaise (texture "terrasses").
+    ctx.save();
+    pathFrom(cliffPts);
+    ctx.clip();
+    ctx.strokeStyle = shade(world.cliffColor, -0.22);
+    ctx.lineWidth = 3;
+    for (let i = 0; i < cliffPts.length; i += 3) {
+      const [x1, y1] = cliffPts[i];
+      const [x2, y2] = grassPts[i];
+      ctx.beginPath();
+      ctx.moveTo(mix(x1, x2, 0.3), mix(y1, y2, 0.3));
+      ctx.lineTo(mix(x1, x2, 0.55), mix(y1, y2, 0.55));
+      ctx.stroke();
     }
+    ctx.restore();
 
     // Herbe (sommet de l'île) : mosaïque des textures fournies (voir
     // getGrassPatternCanvas) en CanvasPattern, avec par-dessus un léger
