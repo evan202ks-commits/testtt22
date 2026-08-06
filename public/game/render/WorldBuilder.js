@@ -48,7 +48,7 @@ window.Game = window.Game || {};
   // continue de l'afficher indéfiniment après un déploiement, même si le
   // fichier a changé sur le serveur — symptôme typique : un sprite qui
   // semble "tronqué" ou périmé alors que le fichier source est correct.
-  const ASSET_VERSION = 2;
+  const ASSET_VERSION = 3;
   function withVersion(url) {
     return `${url}?v=${ASSET_VERSION}`;
   }
@@ -103,35 +103,83 @@ window.Game = window.Game || {};
   // redessiner le sol une fois le chargement terminé.
   // ------------------------------------------------------------------
   const GROUND_TEXTURE_DEFS = {
-    grassClaire: { url: withVersion('/assets/sprites/textures/grass_claire.png'), w: 106, h: 105 },
-    grassMoyenne: { url: withVersion('/assets/sprites/textures/grass_moyenne.png'), w: 106, h: 105 },
-    grassSombre: { url: withVersion('/assets/sprites/textures/grass_sombre.png'), w: 106, h: 105 },
-    grassDense: { url: withVersion('/assets/sprites/textures/grass_dense.png'), w: 106, h: 105 },
+    grassClaire: { url: withVersion('/assets/sprites/textures/grass_claire.png') },
+    grassMoyenne: { url: withVersion('/assets/sprites/textures/grass_moyenne.png') },
+    grassSombre: { url: withVersion('/assets/sprites/textures/grass_sombre.png') },
+    grassDense: { url: withVersion('/assets/sprites/textures/grass_dense.png') },
+    // Eau — 3 tons d'eau profonde (large) + 2 d'eau peu profonde (côte),
+    // découpés de la même planche. Remplacent le dégradé radial bleu.
+    waterDeep1: { url: withVersion('/assets/sprites/textures/water_deep_1.png') },
+    waterDeep2: { url: withVersion('/assets/sprites/textures/water_deep_2.png') },
+    waterDeep3: { url: withVersion('/assets/sprites/textures/water_deep_3.png') },
+    waterShallow1: { url: withVersion('/assets/sprites/textures/water_shallow_1.png') },
+    waterShallow2: { url: withVersion('/assets/sprites/textures/water_shallow_2.png') },
+    // Sable — clair/moyen pour le corps de la plage, humide pour la
+    // rangée de cases qui touche l'eau.
+    sandClair: { url: withVersion('/assets/sprites/textures/sand_clair.png') },
+    sandMoyen: { url: withVersion('/assets/sprites/textures/sand_moyen.png') },
+    sandHumide: { url: withVersion('/assets/sprites/textures/sand_humide.png') },
   };
 
+  // ------------------------------------------------------------------
+  // Détails (petits sprites détourés, fond transparent) semés par-dessus
+  // le sol : galets/coquillages/touffes sur le sable, rochers, algues,
+  // nénuphars et reflets sur l'eau. Dessinés à DECAL_SIZE px, posés sur
+  // la même grille que le terrain (voir scatterDecals).
+  // ------------------------------------------------------------------
+  const DETAIL_SPRITE_DEFS = {
+    sandPebbles1: '/assets/sprites/details/sand_pebbles_1.png',
+    sandPebbles2: '/assets/sprites/details/sand_pebbles_2.png',
+    sandShells: '/assets/sprites/details/sand_shells.png',
+    sandTufts: '/assets/sprites/details/sand_tufts.png',
+    waterRock1: '/assets/sprites/details/water_rock_1.png',
+    waterRock2: '/assets/sprites/details/water_rock_2.png',
+    waterRock3: '/assets/sprites/details/water_rock_3.png',
+    waterAlgae1: '/assets/sprites/details/water_algae_1.png',
+    waterAlgae2: '/assets/sprites/details/water_algae_2.png',
+    waterLily1: '/assets/sprites/details/water_lily_1.png',
+    waterLily2: '/assets/sprites/details/water_lily_2.png',
+    waterSparkle1: '/assets/sprites/details/water_sparkle_1.png',
+    waterSparkle2: '/assets/sprites/details/water_sparkle_2.png',
+    waterSparkle3: '/assets/sprites/details/water_sparkle_3.png',
+    waterFoamBits: '/assets/sprites/details/water_foam_bits.png',
+  };
+  const DECAL_SIZE = 52; // 2 cases de terrain
+
   const _groundTextureImages = {};
+  const _detailImages = {};
   let _groundTexturesLoaded = false;
   const _groundTextureReadyCallbacks = [];
 
+  // Un seul verrou pour TOUTES les images de sol (textures + détails) :
+  // le canvas de sol n'est reconstruit qu'une fois, quand tout est là.
   (function loadGroundTextures() {
-    const keys = Object.keys(GROUND_TEXTURE_DEFS);
-    let remaining = keys.length;
-    keys.forEach((key) => {
+    const jobs = [];
+    Object.keys(GROUND_TEXTURE_DEFS).forEach((key) => {
+      jobs.push([_groundTextureImages, key, GROUND_TEXTURE_DEFS[key].url]);
+    });
+    Object.keys(DETAIL_SPRITE_DEFS).forEach((key) => {
+      jobs.push([_detailImages, key, withVersion(DETAIL_SPRITE_DEFS[key])]);
+    });
+    let remaining = jobs.length;
+    const done = () => {
+      remaining--;
+      if (remaining === 0) {
+        _groundTexturesLoaded = true;
+        _groundTextureReadyCallbacks.splice(0).forEach((cb) => cb());
+      }
+    };
+    jobs.forEach(([store, key, url]) => {
       const img = new Image();
-      img.onload = () => {
-        remaining--;
-        if (remaining === 0) {
-          _groundTexturesLoaded = true;
-          _groundTextureReadyCallbacks.splice(0).forEach((cb) => cb());
-        }
-      };
-      img.src = GROUND_TEXTURE_DEFS[key].url;
-      _groundTextureImages[key] = img;
+      img.onload = done;
+      img.onerror = done; // une image manquante ne doit pas bloquer le sol
+      img.src = url;
+      store[key] = img;
     });
   })();
 
-  /** Appelle `cb` dès que les 5 textures de sol sont chargées (tout de
-   * suite si elles le sont déjà). Utilisé par WorldRenderer.js pour
+  /** Appelle `cb` dès que les textures et détails de sol sont chargés
+   * (tout de suite s'ils le sont déjà). Utilisé par WorldRenderer.js pour
    * reconstruire le canvas de sol une fois les images prêtes. */
   function onGroundTexturesReady(cb) {
     if (_groundTexturesLoaded) cb();
@@ -139,25 +187,25 @@ window.Game = window.Game || {};
   }
 
   // ------------------------------------------------------------------
-  // Mosaïque des 4 tons d'herbe — version "tuiles" (RPG 16 bits).
+  // Mosaïques de terrain — version "tuiles" (RPG 16 bits).
   // ------------------------------------------------------------------
-  // Le sol n'est plus un dégradé continu entre les tons : il est découpé
+  // Un sol n'est plus un dégradé continu entre ses tons : il est découpé
   // en CASES carrées (TERRAIN_CELL) et CHAQUE case reçoit UNE SEULE
   // texture, choisie par un bruit lissé. Conséquence : les frontières
   // entre deux tons ne sont plus floues mais en marches d'escalier à
   // angles droits, alignées sur la grille — exactement la façon dont un
-  // Pokémon DS raccorde herbe / sable / rocher.
+  // Pokémon DS raccorde herbe / sable / eau.
   //
-  // La même grille (TERRAIN_CELL) sert aussi à découper la falaise,
-  // l'herbe, le sable et l'étang dans buildGroundCanvas (voir
+  // La même grille (TERRAIN_CELL) sert aussi à découper l'eau, la
+  // falaise, l'herbe, le sable et l'étang dans buildGroundCanvas (voir
   // cellRegionPath) pour que TOUTES les intersections de textures du
   // monde tombent sur les mêmes lignes.
   const GRASS_TILE = 104;   // taille normalisée d'une tuile de texture
   const TERRAIN_CELL = 26;  // côté d'une case de terrain (quart de tuile)
 
-  // Les 4 textures fournies ne font pas exactement la même taille
-  // (106×105) : on les re-dessine une fois pour toutes dans une tuile
-  // carrée de GRASS_TILE px pour que tout tombe pile sur la grille.
+  // Les textures fournies ne font pas toutes exactement la même taille :
+  // on les re-dessine une fois pour toutes dans une tuile carrée de
+  // GRASS_TILE px pour que tout tombe pile sur la grille.
   const _normalizedTiles = {};
   function getNormalizedTile(key) {
     if (!_normalizedTiles[key]) {
@@ -172,15 +220,54 @@ window.Game = window.Game || {};
     return _normalizedTiles[key];
   }
 
-  let _grassPatternCanvas = null;
-  function getGrassPatternCanvas() {
-    if (_grassPatternCanvas) return _grassPatternCanvas;
+  // --- Bruit de valeur simple (Value Noise 2D), périodique ---
+  // Grille de valeurs aléatoires interpolées bilinéairement : champ
+  // continu [0,1]. Il ne sert PLUS à fondre les textures, seulement à
+  // décider QUELLE texture reçoit chaque case → les taches restent
+  // organiques, mais leurs bords sont crénelés sur la grille.
+  function makeValueNoise(grid, seed) {
+    const rng = mathUtils.mulberry32(seed);
+    const g = [];
+    for (let gy = 0; gy <= grid; gy++) {
+      g[gy] = [];
+      for (let gx = 0; gx <= grid; gx++) g[gy][gx] = rng();
+    }
+    const smooth = (t) => t * t * (3 - 2 * t);
+    return function sample(nx, ny) {
+      const ix = Math.floor(nx) % grid;
+      const iy = Math.floor(ny) % grid;
+      const fx = nx - Math.floor(nx);
+      const fy = ny - Math.floor(ny);
+      const ix1 = (ix + 1) % grid;
+      const iy1 = (iy + 1) % grid;
+      const sx = smooth(fx);
+      const sy = smooth(fy);
+      const v00 = g[iy][ix];
+      const v10 = g[iy][ix1];
+      const v01 = g[iy1][ix];
+      const v11 = g[iy1][ix1];
+      return v00 + (v10 - v00) * sx + (v01 - v00) * sy + (v00 - v10 - v01 + v11) * sx * sy;
+    };
+  }
+
+  /**
+   * Construit (et met en cache) une mosaïque de tuiles répétable.
+   *
+   * @param {string} id      clé de cache
+   * @param {Array}  layers  [{ key, upTo }] du ton "bas" au ton "haut" ;
+   *                         `upTo` = borne haute du bruit pour ce ton
+   *                         (le dernier doit valoir 1).
+   * @param {number} seed    graine (mêmes taches à chaque partie)
+   * @param {number} cells   côté de la mosaïque en cases (défaut 48 →
+   *                         1248 px, multiple entier de GRASS_TILE, donc
+   *                         répétable sans raccord visible).
+   */
+  const _mosaicCache = {};
+  function getMosaicCanvas(id, layers, seed, cells) {
+    if (_mosaicCache[id]) return _mosaicCache[id];
     if (!_groundTexturesLoaded) return null;
 
-    // Mosaïque de 48×48 cases = 1248×1248 px, soit un multiple entier de
-    // GRASS_TILE (12 tuiles) : elle se répète sans raccord visible et
-    // reste assez grande pour que la répétition ne saute pas aux yeux.
-    const CELLS = 48;
+    const CELLS = cells || 48;
     const W = CELLS * TERRAIN_CELL;
     const H = W;
 
@@ -189,85 +276,80 @@ window.Game = window.Game || {};
     canvas.height = H;
     const gctx = canvas.getContext('2d');
 
-    // --- Bruit de valeur simple (Value Noise 2D), périodique ---
-    // Grille de valeurs aléatoires interpolées bilinéairement : champ
-    // continu [0,1]. Il ne sert plus à fondre les textures, seulement à
-    // décider QUELLE texture reçoit chaque case → les taches restent
-    // organiques, mais leurs bords sont crénelés sur la grille.
-    function valueNoise(gridW, gridH, seed) {
-      const rng = mathUtils.mulberry32(seed);
-      const grid = [];
-      for (let gy = 0; gy <= gridH; gy++) {
-        grid[gy] = [];
-        for (let gx = 0; gx <= gridW; gx++) {
-          grid[gy][gx] = rng();
-        }
-      }
-      const smooth = (t) => t * t * (3 - 2 * t);
-      return function sample(nx, ny) {
-        const ix = Math.floor(nx) % gridW;
-        const iy = Math.floor(ny) % gridH;
-        const fx = nx - Math.floor(nx);
-        const fy = ny - Math.floor(ny);
-        const ix1 = (ix + 1) % gridW;
-        const iy1 = (iy + 1) % gridH;
-        const sx = smooth(fx);
-        const sy = smooth(fy);
-        const v00 = grid[iy][ix];
-        const v10 = grid[iy][ix1];
-        const v01 = grid[iy1][ix];
-        const v11 = grid[iy1][ix1];
-        return v00 + (v10 - v00) * sx + (v01 - v00) * sy + (v00 - v10 - v01 + v11) * sx * sy;
-      };
-    }
-
     // Bruit volontairement BASSE fréquence : une cellule de bruit couvre
     // plusieurs cases, sinon on obtient un damier au lieu de zones nettes.
     const GRID_COARSE = 5;
     const GRID_FINE = 10;
-    const noiseA = valueNoise(GRID_COARSE, GRID_COARSE, 20260805);
-    const noiseB = valueNoise(GRID_FINE, GRID_FINE, 20260806);
-    const noiseC = valueNoise(GRID_COARSE, GRID_COARSE, 20260807);
+    const noiseA = makeValueNoise(GRID_COARSE, seed);
+    const noiseB = makeValueNoise(GRID_FINE, seed + 1);
+    const noiseC = makeValueNoise(GRID_COARSE, seed + 2);
 
     function noiseAt(px, py) {
-      const nx = (px / W) * GRID_COARSE;
-      const ny = (py / H) * GRID_COARSE;
-      const nxf = (px / W) * GRID_FINE;
-      const nyf = (py / H) * GRID_FINE;
-      const n = noiseA(nx, ny) * 0.88 + noiseB(nxf, nyf) * 0.12;
-      const m = noiseC(nx, ny);
-      return { n, m };
+      const n =
+        noiseA((px / W) * GRID_COARSE, (py / H) * GRID_COARSE) * 0.88 +
+        noiseB((px / W) * GRID_FINE, (py / H) * GRID_FINE) * 0.12;
+      const m = noiseC((px / W) * GRID_COARSE, (py / H) * GRID_COARSE);
+      return n * 0.78 + m * 0.22;
     }
 
     // Un CanvasPattern par ton, tous calés sur l'origine du canvas : deux
-    // cases voisines du même ton restent donc parfaitement raccordées,
-    // seule la frontière entre deux tons différents se voit.
+    // cases voisines du même ton restent parfaitement raccordées, seule
+    // la frontière entre deux tons différents se voit.
     const patterns = {};
-    Object.keys(GROUND_TEXTURE_DEFS).forEach((key) => {
-      patterns[key] = gctx.createPattern(getNormalizedTile(key), 'repeat');
+    layers.forEach((l) => {
+      if (!patterns[l.key]) patterns[l.key] = gctx.createPattern(getNormalizedTile(l.key), 'repeat');
     });
-
-    // Choix du ton d'une case : seuils francs sur le bruit (pas de
-    // dégradé). grassDense reste rare → petites touffes isolées.
-    function tileKeyAt(px, py) {
-      const { n, m } = noiseAt(px, py);
-      const t = n * 0.78 + m * 0.22;
-      if (t < 0.40) return 'grassSombre';
-      if (t < 0.58) return 'grassMoyenne';
-      if (t < 0.75) return 'grassClaire';
-      return 'grassDense';
-    }
 
     for (let py = 0; py < H; py += TERRAIN_CELL) {
       for (let px = 0; px < W; px += TERRAIN_CELL) {
-        gctx.fillStyle = patterns[tileKeyAt(px + TERRAIN_CELL / 2, py + TERRAIN_CELL / 2)];
+        const t = noiseAt(px + TERRAIN_CELL / 2, py + TERRAIN_CELL / 2);
+        let chosen = layers[layers.length - 1];
+        for (const l of layers) {
+          if (t < l.upTo) { chosen = l; break; }
+        }
+        gctx.fillStyle = patterns[chosen.key];
         gctx.fillRect(px, py, TERRAIN_CELL, TERRAIN_CELL);
       }
     }
 
-    _grassPatternCanvas = canvas;
+    _mosaicCache[id] = canvas;
     return canvas;
   }
+
+  // Mosaïques du monde. Seeds fixes : même découpe à chaque partie.
+  // grassDense / waterDeep3 / sandHumide restent rares (seuil haut) →
+  // petites taches isolées plutôt qu'un damier.
+  const getGrassPatternCanvas = () => getMosaicCanvas('grass', [
+    { key: 'grassSombre', upTo: 0.40 },
+    { key: 'grassMoyenne', upTo: 0.58 },
+    { key: 'grassClaire', upTo: 0.75 },
+    { key: 'grassDense', upTo: 1 },
+  ], 20260805);
+
+  // Au large on ne mélange que les deux bleus sombres : la 3e tuile
+  // (plus claire) ressortait en carrés isolés au milieu de l'eau. Les
+  // éclats de lumière viennent des décals "reflets" à la place.
+  const getDeepWaterPatternCanvas = () => getMosaicCanvas('waterDeep', [
+    { key: 'waterDeep2', upTo: 0.5 },
+    { key: 'waterDeep1', upTo: 1 },
+  ], 20260810, 32);
+
+  const getShallowWaterPatternCanvas = () => getMosaicCanvas('waterShallow', [
+    { key: 'waterShallow2', upTo: 0.52 },
+    { key: 'waterShallow1', upTo: 1 },
+  ], 20260812, 24);
+
+  // Plage sèche : clair + moyen seulement (le ton humide est réservé à
+  // la rangée qui touche l'eau, sinon il fait des taches sombres au
+  // milieu du sable).
+  const getSandPatternCanvas = () => getMosaicCanvas('sand', [
+    { key: 'sandMoyen', upTo: 0.45 },
+    { key: 'sandClair', upTo: 1 },
+  ], 20260814, 24);
+
+  const getWetSandPatternCanvas = () => getMosaicCanvas('sandWet', [
+    { key: 'sandHumide', upTo: 1 },
+  ], 20260816, 12);
 
   /**
    * Construit un Path2D composé UNIQUEMENT de cases carrées de la grille
@@ -927,23 +1009,23 @@ window.Game = window.Game || {};
     canvas.height = h;
     const ctx = canvas.getContext('2d');
 
-    // Eau (fond), dégradé profond -> clair vers l'île.
+    // Eau (fond) : mosaïque de tuiles d'eau profonde (voir
+    // getDeepWaterPatternCanvas) au lieu de l'ancien dégradé radial. Le
+    // dégradé sert encore de repli tant que les images ne sont pas
+    // chargées, et repasse par-dessus en translucide pour garder la
+    // sensation de profondeur au large.
+    const deepWaterCanvas = getDeepWaterPatternCanvas();
     const waterGrad = ctx.createRadialGradient(cx, cy, Math.min(w, h) * 0.18, cx, cy, Math.max(w, h) * 0.72);
     waterGrad.addColorStop(0, hex(world.waterColor));
     waterGrad.addColorStop(1, hex(world.waterColor2));
-    ctx.fillStyle = waterGrad;
+    ctx.fillStyle = deepWaterCanvas ? ctx.createPattern(deepWaterCanvas, 'repeat') : waterGrad;
     ctx.fillRect(0, 0, w, h);
-
-    // Petits reflets sur l'eau (traits clairs épars, purement décoratifs).
-    const wrng = mathUtils.mulberry32(mathUtils.hashString(world.id) + 7);
-    ctx.strokeStyle = 'rgba(255,255,255,0.09)';
-    for (let i = 0; i < 70; i++) {
-      const px = wrng() * w, py = wrng() * h, len = 14 + wrng() * 26;
-      ctx.lineWidth = 1 + wrng() * 1.5;
-      ctx.beginPath();
-      ctx.moveTo(px, py);
-      ctx.lineTo(px + len, py);
-      ctx.stroke();
+    if (deepWaterCanvas) {
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = waterGrad;
+      ctx.fillRect(0, 0, w, h);
+      ctx.restore();
     }
 
     // ------------------------------------------------------------------
@@ -972,8 +1054,51 @@ window.Game = window.Game || {};
     const grassPath = cellRegionPath(w, h, insideRadius(world.grassRadius));
     const grassRimPath = cellRegionPath(w, h, rimOfRadius(world.grassRadius));
 
+    // ------------------------------------------------------------------
+    // Détails semés (galets, coquillages, rochers immergés, algues,
+    // reflets — voir DETAIL_SPRITE_DEFS). Posés à DECAL_SIZE px sur la
+    // demi-grille du terrain : ils restent alignés sur le damier, donc
+    // cohérents avec les bords en marches d'escalier.
+    // ------------------------------------------------------------------
+    const HALF_CELL = TERRAIN_CELL / 2;
+    function drawDecal(key, px, py) {
+      const img = _detailImages[key];
+      if (!img || !img.width) return;
+      const gx = Math.round((px - DECAL_SIZE / 2) / HALF_CELL) * HALF_CELL;
+      const gy = Math.round((py - DECAL_SIZE / 2) / HALF_CELL) * HALF_CELL;
+      ctx.drawImage(img, gx, gy, DECAL_SIZE, DECAL_SIZE);
+    }
+    /** Sème `count` décals pris au hasard dans `keys`, aux endroits
+     * acceptés par `accept(x, y)`. Tirage déterministe (seed du monde). */
+    function scatterDecals(keys, count, seed, accept, alpha) {
+      const rng = mathUtils.mulberry32(mathUtils.hashString(world.id) + seed);
+      ctx.save();
+      if (alpha) ctx.globalAlpha = alpha;
+      let placed = 0;
+      let guard = 0;
+      while (placed < count && guard++ < count * 60) {
+        const px = rng() * w;
+        const py = rng() * h;
+        if (!accept(px, py)) continue;
+        drawDecal(keys[Math.floor(rng() * keys.length)], px, py);
+        placed++;
+      }
+      ctx.restore();
+    }
+
+    // Eau peu profonde : bande de tuiles côtières (turquoise) sur
+    // quelques cases autour de l'île, découpée à la case → la limite
+    // large / haut-fond est franche, comme sur la fiche.
+    const SHALLOW_BAND = TERRAIN_CELL * 5;
+    const shallowCanvas = getShallowWaterPatternCanvas();
+    const shallowPath = cellRegionPath(w, h, insideRadius(world.boundaryRadius, SHALLOW_BAND));
+    if (shallowCanvas) {
+      ctx.fillStyle = ctx.createPattern(shallowCanvas, 'repeat');
+      ctx.fill(shallowPath);
+    }
+
     // Écume : anneau blanc translucide d'une case, débordant sur l'eau.
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillStyle = 'rgba(255,255,255,0.42)';
     ctx.fill(foamPath);
 
     // Falaise (terre) : aplat de couleur + liseré sombre d'une case sur
@@ -1056,11 +1181,25 @@ window.Game = window.Game || {};
         return depth > 0 && d <= rGrass && d > rGrass - depth;
       });
       ctx.save();
+      const sandCanvas = getSandPatternCanvas();
+      const wetSandCanvas = getWetSandPatternCanvas();
       const sandGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(world.halfWidth, world.halfHeight));
       sandGrad.addColorStop(0, hex(world.sandColor));
       sandGrad.addColorStop(1, hex(world.sandColor2));
-      ctx.fillStyle = sandGrad;
+      ctx.fillStyle = sandCanvas ? ctx.createPattern(sandCanvas, 'repeat') : sandGrad;
       ctx.fill(sandPath);
+      // Sable humide : les 2 cases qui touchent l'eau (ton foncé de la
+      // fiche) — transition franche sable sec / sable mouillé.
+      if (wetSandCanvas) {
+        const wetPath = cellRegionPath(w, h, (px, py) => {
+          const angle = angleAt(px, py);
+          const d = distAt(px, py);
+          const rGrass = world.grassRadius(angle);
+          return sandDepthAt(angle) > 0 && d <= rGrass && d > rGrass - TERRAIN_CELL * 2;
+        });
+        ctx.fillStyle = ctx.createPattern(wetSandCanvas, 'repeat');
+        ctx.fill(wetPath);
+      }
       // Petits galets épars sur le sable, eux aussi calés sur la grille.
       const srng = mathUtils.mulberry32(mathUtils.hashString(world.id) + 11);
       ctx.clip(sandPath);
@@ -1079,6 +1218,17 @@ window.Game = window.Game || {};
       }
       ctx.globalAlpha = 1;
       ctx.restore();
+
+      // Galets, coquillages et touffes d'herbe sur la plage.
+      const onSand = (px, py) => {
+        const angle = angleAt(px, py);
+        const d = distAt(px, py);
+        const rGrass = world.grassRadius(angle);
+        const depth = sandDepthAt(angle);
+        return depth > 30 && d < rGrass - HALF_CELL && d > rGrass - depth + HALF_CELL;
+      };
+      scatterDecals(['sandPebbles1', 'sandPebbles2', 'sandShells'], 14, 31, onSand);
+      scatterDecals(['sandTufts'], 8, 33, onSand);
     }
 
     // Variations d'usure sur l'herbe : anciennes taches rondes remplacées
@@ -1112,24 +1262,48 @@ window.Game = window.Game || {};
       const waterPath = cellRegionPath(w, h, insideEllipse(1));
       ctx.save();
       ctx.clip(grassPath);
-      ctx.fillStyle = hex(world.sandColor);
+      const pondShoreCanvas = getWetSandPatternCanvas();
+      ctx.fillStyle = pondShoreCanvas ? ctx.createPattern(pondShoreCanvas, 'repeat') : hex(world.sandColor);
       ctx.fill(shorePath);
+      const pondWaterCanvas = getShallowWaterPatternCanvas();
       const pondGrad = ctx.createRadialGradient(ox, oy, 0, ox, oy, Math.max(pond.rx, pond.ry));
       pondGrad.addColorStop(0, hex(world.waterColor));
       pondGrad.addColorStop(1, hex(world.waterColor2));
-      ctx.fillStyle = pondGrad;
+      ctx.fillStyle = pondWaterCanvas ? ctx.createPattern(pondWaterCanvas, 'repeat') : pondGrad;
       ctx.fill(waterPath);
+      // Nénuphars et algues de l'étang (vrais sprites de la fiche).
       const prng = mathUtils.mulberry32(mathUtils.hashString(world.id) + 23);
+      const lilyKeys = ['waterLily1', 'waterLily2', 'waterAlgae1', 'waterAlgae2'];
       for (let i = 0; i < 5; i++) {
         const a = prng() * Math.PI * 2;
-        const rr = prng() * 0.6;
-        const lx = Math.round((ox + Math.cos(a) * pond.rx * rr) / (TERRAIN_CELL / 2)) * (TERRAIN_CELL / 2);
-        const ly = Math.round((oy + Math.sin(a) * pond.ry * rr) / (TERRAIN_CELL / 2)) * (TERRAIN_CELL / 2);
-        ctx.fillStyle = '#4f8a5c';
-        ctx.fillRect(lx, ly, TERRAIN_CELL / 2, TERRAIN_CELL / 2);
+        const rr = 0.15 + prng() * 0.5;
+        drawDecal(
+          lilyKeys[Math.floor(prng() * lilyKeys.length)],
+          ox + Math.cos(a) * pond.rx * rr,
+          oy + Math.sin(a) * pond.ry * rr
+        );
       }
       ctx.restore();
     }
+
+    // ------------------------------------------------------------------
+    // Détails de l'eau : rochers immergés et algues sur les hauts-fonds,
+    // éclats d'écume au ras de la côte, reflets épars au large.
+    // ------------------------------------------------------------------
+    const onShallowWater = (px, py) => {
+      const d = distAt(px, py);
+      const r = world.boundaryRadius(angleAt(px, py));
+      return d > r + TERRAIN_CELL * 1.5 && d < r + SHALLOW_BAND - HALF_CELL;
+    };
+    const onDeepWater = (px, py) => {
+      const d = distAt(px, py);
+      const r = world.boundaryRadius(angleAt(px, py));
+      return d > r + SHALLOW_BAND + TERRAIN_CELL;
+    };
+    scatterDecals(['waterRock1', 'waterRock2', 'waterRock3'], 16, 41, onShallowWater);
+    scatterDecals(['waterAlgae1', 'waterAlgae2'], 12, 43, onShallowWater);
+    scatterDecals(['waterFoamBits'], 18, 45, onShallowWater, 0.75);
+    scatterDecals(['waterSparkle1', 'waterSparkle2', 'waterSparkle3'], 40, 47, onDeepWater, 0.55);
 
     return canvas;
   }
