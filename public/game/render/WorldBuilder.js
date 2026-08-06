@@ -138,39 +138,62 @@ window.Game = window.Game || {};
     else _groundTextureReadyCallbacks.push(cb);
   }
 
-  // Mosaïque des 4 tons d'herbe avec transitions douces (blending par bruit)
-  // construite une seule fois puis répétée en CanvasPattern.
-  // Seed fixe : même mosaïque à chaque partie, comme le reste du décor.
+  // ------------------------------------------------------------------
+  // Mosaïque des 4 tons d'herbe — version "tuiles" (RPG 16 bits).
+  // ------------------------------------------------------------------
+  // Le sol n'est plus un dégradé continu entre les tons : il est découpé
+  // en CASES carrées (TERRAIN_CELL) et CHAQUE case reçoit UNE SEULE
+  // texture, choisie par un bruit lissé. Conséquence : les frontières
+  // entre deux tons ne sont plus floues mais en marches d'escalier à
+  // angles droits, alignées sur la grille — exactement la façon dont un
+  // Pokémon DS raccorde herbe / sable / rocher.
   //
-  // Principe : on construit d'abord chaque texture en CanvasPattern sur un
-  // grand canvas intermédiaire, puis on les composite en utilisant un masque
-  // de bruit (valeur de Perlin simplifié) qui varie doucement dans l'espace
-  // — aucune frontière nette entre les tons, tout se fond naturellement.
+  // La même grille (TERRAIN_CELL) sert aussi à découper la falaise,
+  // l'herbe, le sable et l'étang dans buildGroundCanvas (voir
+  // cellRegionPath) pour que TOUTES les intersections de textures du
+  // monde tombent sur les mêmes lignes.
+  const GRASS_TILE = 104;   // taille normalisée d'une tuile de texture
+  const TERRAIN_CELL = 26;  // côté d'une case de terrain (quart de tuile)
+
+  // Les 4 textures fournies ne font pas exactement la même taille
+  // (106×105) : on les re-dessine une fois pour toutes dans une tuile
+  // carrée de GRASS_TILE px pour que tout tombe pile sur la grille.
+  const _normalizedTiles = {};
+  function getNormalizedTile(key) {
+    if (!_normalizedTiles[key]) {
+      const c = document.createElement('canvas');
+      c.width = GRASS_TILE;
+      c.height = GRASS_TILE;
+      const tctx = c.getContext('2d');
+      tctx.imageSmoothingEnabled = false; // garde le grain pixel net
+      tctx.drawImage(_groundTextureImages[key], 0, 0, GRASS_TILE, GRASS_TILE);
+      _normalizedTiles[key] = c;
+    }
+    return _normalizedTiles[key];
+  }
+
   let _grassPatternCanvas = null;
   function getGrassPatternCanvas() {
     if (_grassPatternCanvas) return _grassPatternCanvas;
     if (!_groundTexturesLoaded) return null;
 
-    const tw = GROUND_TEXTURE_DEFS.grassMoyenne.w;
-    const th = GROUND_TEXTURE_DEFS.grassMoyenne.h;
-
-    // Taille du canvas de mosaïque — assez grand pour que la répétition
-    // ne se voit pas trop, et multiple entier des tuiles pour éviter les
-    // raccords de bord.
-    const cols = 6;
-    const rows = 6;
-    const W = tw * cols;
-    const H = th * rows;
+    // Mosaïque de 48×48 cases = 1248×1248 px, soit un multiple entier de
+    // GRASS_TILE (12 tuiles) : elle se répète sans raccord visible et
+    // reste assez grande pour que la répétition ne saute pas aux yeux.
+    const CELLS = 48;
+    const W = CELLS * TERRAIN_CELL;
+    const H = W;
 
     const canvas = document.createElement('canvas');
     canvas.width = W;
     canvas.height = H;
     const gctx = canvas.getContext('2d');
 
-    // --- Bruit de valeur simple (Value Noise 2D) ---
-    // Grille de valeurs aléatoires interpolées bilinéairement — donne un
-    // champ de valeurs continu [0,1] qui varie doucement dans l'espace.
-    // On utilise deux fréquences (grosse tache + détail fin) combinées.
+    // --- Bruit de valeur simple (Value Noise 2D), périodique ---
+    // Grille de valeurs aléatoires interpolées bilinéairement : champ
+    // continu [0,1]. Il ne sert plus à fondre les textures, seulement à
+    // décider QUELLE texture reçoit chaque case → les taches restent
+    // organiques, mais leurs bords sont crénelés sur la grille.
     function valueNoise(gridW, gridH, seed) {
       const rng = mathUtils.mulberry32(seed);
       const grid = [];
@@ -180,10 +203,8 @@ window.Game = window.Game || {};
           grid[gy][gx] = rng();
         }
       }
-      // Interpolation douce (smoothstep)
       const smooth = (t) => t * t * (3 - 2 * t);
       return function sample(nx, ny) {
-        // nx, ny dans [0, gridW] x [0, gridH]
         const ix = Math.floor(nx) % gridW;
         const iy = Math.floor(ny) % gridH;
         const fx = nx - Math.floor(nx);
@@ -200,108 +221,71 @@ window.Game = window.Game || {};
       };
     }
 
-    // Deux couches de bruit : une grande (transitions molles) + une petite
-    // (variation de détail) combinées.
-    const GRID_COARSE = 5;  // cellules de bruit sur toute la mosaïque
-    const GRID_FINE   = 12; // cellules de bruit fines
+    // Bruit volontairement BASSE fréquence : une cellule de bruit couvre
+    // plusieurs cases, sinon on obtient un damier au lieu de zones nettes.
+    const GRID_COARSE = 5;
+    const GRID_FINE = 10;
     const noiseA = valueNoise(GRID_COARSE, GRID_COARSE, 20260805);
-    const noiseB = valueNoise(GRID_FINE,   GRID_FINE,   20260806);
-    const noiseC = valueNoise(GRID_COARSE, GRID_COARSE, 20260807); // 2e dimension de variation
+    const noiseB = valueNoise(GRID_FINE, GRID_FINE, 20260806);
+    const noiseC = valueNoise(GRID_COARSE, GRID_COARSE, 20260807);
 
-    // Calcule la valeur de bruit finale en un point (px, py) [0..W] x [0..H]
-    // → renvoie {n, m} : n ∈ [0,1] pilote quel ton, m ∈ [0,1] pilote claire/sombre
     function noiseAt(px, py) {
       const nx = (px / W) * GRID_COARSE;
       const ny = (py / H) * GRID_COARSE;
       const nxf = (px / W) * GRID_FINE;
       const nyf = (py / H) * GRID_FINE;
-      const n = noiseA(nx, ny) * 0.70 + noiseB(nxf, nyf) * 0.30;
+      const n = noiseA(nx, ny) * 0.88 + noiseB(nxf, nyf) * 0.12;
       const m = noiseC(nx, ny);
       return { n, m };
     }
 
-    // Fonction de transition douce (smoothstep) entre a et b pour t ∈ [a,b]
-    function smoothstep(edge0, edge1, x) {
-      const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
-      return t * t * (3 - 2 * t);
+    // Un CanvasPattern par ton, tous calés sur l'origine du canvas : deux
+    // cases voisines du même ton restent donc parfaitement raccordées,
+    // seule la frontière entre deux tons différents se voit.
+    const patterns = {};
+    Object.keys(GROUND_TEXTURE_DEFS).forEach((key) => {
+      patterns[key] = gctx.createPattern(getNormalizedTile(key), 'repeat');
+    });
+
+    // Choix du ton d'une case : seuils francs sur le bruit (pas de
+    // dégradé). grassDense reste rare → petites touffes isolées.
+    function tileKeyAt(px, py) {
+      const { n, m } = noiseAt(px, py);
+      const t = n * 0.78 + m * 0.22;
+      if (t < 0.40) return 'grassSombre';
+      if (t < 0.58) return 'grassMoyenne';
+      if (t < 0.75) return 'grassClaire';
+      return 'grassDense';
     }
 
-    // --- Étape 1 : peindre un fond avec grassMoyenne (base) ---
-    const basePattern = gctx.createPattern(_groundTextureImages.grassMoyenne, 'repeat');
-    gctx.fillStyle = basePattern;
-    gctx.fillRect(0, 0, W, H);
-
-    // --- Étape 2 : compositer les autres tons par-dessus avec globalAlpha ---
-    // Stratégie : pour chaque pixel on calcule l'alpha de chaque couche de
-    // texture via le bruit; on simule ça en découpant le canvas en tuiles
-    // suffisamment petites (4×4 px) et en variant l'opacité par zone.
-    // C'est l'approche "offline render" classique pour le pixel art.
-    const STEP = 4; // résolution du blendig (pixels par cellule de calcul)
-
-    // Textures à superposer par-dessus la base moyene :
-    //   grassClaire → zones où n > 0.55 && m > 0.5
-    //   grassSombre → zones où n < 0.35
-    //   grassDense  → zones où n > 0.68 && m < 0.4
-    const layers = [
-      {
-        img: _groundTextureImages.grassSombre,
-        // alpha : monte quand n est bas
-        alpha: ({ n }) => smoothstep(0.45, 0.20, n),
-      },
-      {
-        img: _groundTextureImages.grassClaire,
-        // alpha : monte quand n est haut et m est haut
-        alpha: ({ n, m }) => smoothstep(0.52, 0.75, n) * smoothstep(0.38, 0.65, m),
-      },
-      {
-        img: _groundTextureImages.grassDense,
-        // alpha : monte quand n est très haut et m est bas
-        alpha: ({ n, m }) => smoothstep(0.60, 0.82, n) * smoothstep(0.55, 0.28, m),
-      },
-    ];
-
-    // Pour chaque couche on balaie le canvas par tuiles de STEP×STEP px
-    for (const layer of layers) {
-      const pattern = gctx.createPattern(layer.img, 'repeat');
-      // Créer un canvas temporaire pour la couche
-      const tmpCanvas = document.createElement('canvas');
-      tmpCanvas.width = W;
-      tmpCanvas.height = H;
-      const tctx = tmpCanvas.getContext('2d');
-      // Remplir entièrement avec la texture
-      tctx.fillStyle = tctx.createPattern(layer.img, 'repeat');
-      tctx.fillRect(0, 0, W, H);
-      // Appliquer le masque alpha cellule par cellule
-      for (let py = 0; py < H; py += STEP) {
-        for (let px = 0; px < W; px += STEP) {
-          const noise = noiseAt(px + STEP / 2, py + STEP / 2);
-          const a = layer.alpha(noise);
-          if (a < 0.004) continue; // transparent, rien à faire
-          gctx.save();
-          gctx.globalAlpha = a;
-          // Dessiner juste ce pixel de la texture (déjà dans tmpCanvas)
-          gctx.drawImage(tmpCanvas, px, py, STEP, STEP, px, py, STEP, STEP);
-          gctx.restore();
-        }
+    for (let py = 0; py < H; py += TERRAIN_CELL) {
+      for (let px = 0; px < W; px += TERRAIN_CELL) {
+        gctx.fillStyle = patterns[tileKeyAt(px + TERRAIN_CELL / 2, py + TERRAIN_CELL / 2)];
+        gctx.fillRect(px, py, TERRAIN_CELL, TERRAIN_CELL);
       }
     }
 
-    // --- Étape 3 : léger vignettage intérieur pour casser l'effet trop répétitif ---
-    // (optionnel — très discret)
-    const vctx = canvas.getContext('2d');
-    const rng2 = mathUtils.mulberry32(20260808);
-    vctx.save();
-    vctx.globalAlpha = 0.04;
-    for (let i = 0; i < 40; i++) {
-      vctx.fillStyle = rng2() > 0.5 ? '#ffffff' : '#000000';
-      vctx.beginPath();
-      vctx.arc(rng2() * W, rng2() * H, 6 + rng2() * 18, 0, Math.PI * 2);
-      vctx.fill();
-    }
-    vctx.restore();
-
     _grassPatternCanvas = canvas;
     return canvas;
+  }
+
+  /**
+   * Construit un Path2D composé UNIQUEMENT de cases carrées de la grille
+   * TERRAIN_CELL : une case est retenue si son centre satisfait
+   * `inside(x, y)`. Sert à peindre falaise / herbe / sable / étang avec
+   * des contours en marches d'escalier alignés sur la même grille que la
+   * mosaïque d'herbe, au lieu des courbes lisses d'origine.
+   * Utilisable aussi bien en ctx.fill(path) qu'en ctx.clip(path).
+   */
+  function cellRegionPath(w, h, inside, cell) {
+    const c = cell || TERRAIN_CELL;
+    const path = new Path2D();
+    for (let py = 0; py < h; py += c) {
+      for (let px = 0; px < w; px += c) {
+        if (inside(px + c / 2, py + c / 2)) path.rect(px, py, c, c);
+      }
+    }
+    return path;
   }
 
   function pickTreeSpriteKey(type, rng) {
@@ -962,53 +946,55 @@ window.Game = window.Game || {};
       ctx.stroke();
     }
 
-    // Contours de la côte (falaise) et de l'herbe, échantillonnés une
-    // fois pour toutes (mêmes points réutilisés pour le dessin ET pour
-    // la bande de texture de la falaise).
-    const steps = 160;
-    const cliffPts = [];
-    const grassPts = [];
-    for (let i = 0; i <= steps; i++) {
-      const angle = (i / steps) * Math.PI * 2;
-      const rc = world.boundaryRadius(angle);
-      const rg = world.grassRadius(angle);
-      cliffPts.push([cx + Math.cos(angle) * rc, cy + Math.sin(angle) * rc]);
-      grassPts.push([cx + Math.cos(angle) * rg, cy + Math.sin(angle) * rg]);
-    }
-    const pathFrom = (pts) => {
-      ctx.beginPath();
-      pts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
-      ctx.closePath();
+    // ------------------------------------------------------------------
+    // Découpe du terrain en CASES (grille TERRAIN_CELL).
+    // ------------------------------------------------------------------
+    // Toutes les zones de sol (écume, falaise, herbe, sable, étang) sont
+    // désormais peintes case par case au lieu d'être des polygones lisses :
+    // leurs contours — et donc toutes les intersections entre textures —
+    // tombent sur la même grille à angles droits que la mosaïque d'herbe.
+    const steps = 160; // échantillonnage angulaire (strates de falaise)
+    const angleAt = (px, py) => Math.atan2(py - cy, px - cx);
+    const distAt = (px, py) => Math.hypot(px - cx, py - cy);
+    // "à l'intérieur du rayon r(angle) (+ marge)"
+    const insideRadius = (radiusFn, pad) => (px, py) =>
+      distAt(px, py) <= radiusFn(angleAt(px, py)) + (pad || 0);
+    // anneau d'une case d'épaisseur, collé au bord intérieur du rayon
+    const rimOfRadius = (radiusFn, thickness) => (px, py) => {
+      const r = radiusFn(angleAt(px, py));
+      const d = distAt(px, py);
+      return d <= r && d > r - (thickness || TERRAIN_CELL);
     };
 
-    // Écume : liseré blanc translucide tout le long de la côte.
-    pathFrom(cliffPts);
-    ctx.save();
-    ctx.lineWidth = 16;
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-    ctx.stroke();
-    ctx.restore();
+    const foamPath = cellRegionPath(w, h, insideRadius(world.boundaryRadius, TERRAIN_CELL));
+    const cliffPath = cellRegionPath(w, h, insideRadius(world.boundaryRadius));
+    const cliffRimPath = cellRegionPath(w, h, rimOfRadius(world.boundaryRadius));
+    const grassPath = cellRegionPath(w, h, insideRadius(world.grassRadius));
+    const grassRimPath = cellRegionPath(w, h, rimOfRadius(world.grassRadius));
 
-    // Falaise (terre) : aplat de couleur avec petites strates peintes à
-    // la main (pas de texture image ici — retiré à la demande, voir
-    // getGrassPatternCanvas plus bas pour l'herbe, qui elle reste
-    // texturée).
-    pathFrom(cliffPts);
+    // Écume : anneau blanc translucide d'une case, débordant sur l'eau.
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fill(foamPath);
+
+    // Falaise (terre) : aplat de couleur + liseré sombre d'une case sur
+    // le pourtour (l'ancien stroke ne marche plus : le path est fait de
+    // rectangles indépendants, le contourner dessinerait la grille).
     ctx.fillStyle = hex(world.cliffColor);
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = shade(world.cliffColor, -0.35);
-    ctx.stroke();
+    ctx.fill(cliffPath);
+    ctx.fillStyle = shade(world.cliffColor, -0.30);
+    ctx.fill(cliffRimPath);
 
     // Petites strates sur la bande de falaise (texture "terrasses").
     ctx.save();
-    pathFrom(cliffPts);
-    ctx.clip();
+    ctx.clip(cliffPath);
     ctx.strokeStyle = shade(world.cliffColor, -0.22);
     ctx.lineWidth = 3;
-    for (let i = 0; i < cliffPts.length; i += 3) {
-      const [x1, y1] = cliffPts[i];
-      const [x2, y2] = grassPts[i];
+    for (let i = 0; i <= steps; i += 3) {
+      const angle = (i / steps) * Math.PI * 2;
+      const rc = world.boundaryRadius(angle);
+      const rg = world.grassRadius(angle);
+      const x1 = cx + Math.cos(angle) * rc, y1 = cy + Math.sin(angle) * rc;
+      const x2 = cx + Math.cos(angle) * rg, y2 = cy + Math.sin(angle) * rg;
       ctx.beginPath();
       ctx.moveTo(mix(x1, x2, 0.3), mix(y1, y2, 0.3));
       ctx.lineTo(mix(x1, x2, 0.55), mix(y1, y2, 0.55));
@@ -1016,40 +1002,40 @@ window.Game = window.Game || {};
     }
     ctx.restore();
 
-    // Herbe (sommet de l'île) : mosaïque des textures fournies (voir
-    // getGrassPatternCanvas) en CanvasPattern, avec par-dessus un léger
-    // dégradé radial translucide pour garder la même impression de
-    // profondeur qu'avant (plus clair au centre, plus sombre vers la
-    // côte). Tant que les textures ne sont pas chargées, on retombe sur
-    // l'ancien dégradé plein (voir onGroundTexturesReady plus haut).
-    pathFrom(grassPts);
+    // Herbe (sommet de l'île) : mosaïque de tuiles (voir
+    // getGrassPatternCanvas) en CanvasPattern — calée sur l'origine du
+    // canvas, donc sur la même grille que les cases — avec par-dessus un
+    // léger dégradé radial pour garder la profondeur d'avant. Tant que
+    // les textures ne sont pas chargées, on retombe sur l'ancien dégradé.
     const grassPatternCanvas = getGrassPatternCanvas();
     const grassGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(world.halfWidth, world.halfHeight));
     grassGrad.addColorStop(0, hex(world.groundColor));
     grassGrad.addColorStop(1, hex(world.groundColor2));
     ctx.fillStyle = grassPatternCanvas ? ctx.createPattern(grassPatternCanvas, 'repeat') : grassGrad;
-    ctx.fill();
+    ctx.fill(grassPath);
+    // Liseré d'ombre d'une case là où l'herbe surplombe la falaise.
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = shade(world.groundColor2, -0.45);
+    ctx.fill(grassRimPath);
+    ctx.restore();
     if (grassPatternCanvas) {
       ctx.save();
-      pathFrom(grassPts);
-      ctx.clip();
+      ctx.clip(grassPath);
       const shadeGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(world.halfWidth, world.halfHeight));
       shadeGrad.addColorStop(0, 'rgba(255,255,255,0.10)');
       shadeGrad.addColorStop(0.6, 'rgba(0,0,0,0)');
       shadeGrad.addColorStop(1, 'rgba(0,0,0,0.30)');
       ctx.fillStyle = shadeGrad;
-      ctx.fill();
+      ctx.fillRect(0, 0, w, h);
       ctx.restore();
     }
 
     // Plages de sable : bandes qui longent la côte sur certains secteurs
     // angulaires (voir world.sandZones), profondeur maximale au centre du
-    // secteur, qui retombe à 0 sur ses bords (cosinus) pour une transition
-    // douce avec l'herbe.
+    // secteur et retombant à 0 sur ses bords — mais découpées à la case,
+    // donc raccordées à l'herbe en marches d'escalier.
     if (world.sandZones && world.sandZones.length) {
-      ctx.save();
-      pathFrom(grassPts);
-      ctx.clip();
       const sandDepthAt = (angle) => {
         let depth = 0;
         for (const zone of world.sandZones) {
@@ -1062,91 +1048,85 @@ window.Game = window.Game || {};
         }
         return depth;
       };
-      const outerPts = [];
-      const innerPts = [];
-      for (let i = 0; i <= steps; i++) {
-        const angle = (i / steps) * Math.PI * 2;
+      const sandPath = cellRegionPath(w, h, (px, py) => {
+        const angle = angleAt(px, py);
+        const d = distAt(px, py);
         const rGrass = world.grassRadius(angle);
         const depth = sandDepthAt(angle);
-        outerPts.push([cx + Math.cos(angle) * rGrass, cy + Math.sin(angle) * rGrass]);
-        innerPts.push([cx + Math.cos(angle) * (rGrass - depth), cy + Math.sin(angle) * (rGrass - depth)]);
-      }
-      ctx.beginPath();
-      outerPts.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
-      for (let i = innerPts.length - 1; i >= 0; i--) ctx.lineTo(innerPts[i][0], innerPts[i][1]);
-      ctx.closePath();
+        return depth > 0 && d <= rGrass && d > rGrass - depth;
+      });
+      ctx.save();
       const sandGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(world.halfWidth, world.halfHeight));
       sandGrad.addColorStop(0, hex(world.sandColor));
       sandGrad.addColorStop(1, hex(world.sandColor2));
       ctx.fillStyle = sandGrad;
-      ctx.fill();
-      // Petits points/galets épars sur le sable.
+      ctx.fill(sandPath);
+      // Petits galets épars sur le sable, eux aussi calés sur la grille.
       const srng = mathUtils.mulberry32(mathUtils.hashString(world.id) + 11);
-      ctx.save();
-      ctx.clip();
+      ctx.clip(sandPath);
+      const pebble = TERRAIN_CELL / 4;
       for (let i = 0; i < 220; i++) {
         const angle = srng() * Math.PI * 2;
         const depth = sandDepthAt(angle);
         if (depth < 10) continue;
         const rGrass = world.grassRadius(angle);
         const rr = rGrass - srng() * depth;
-        const px = cx + Math.cos(angle) * rr;
-        const py = cy + Math.sin(angle) * rr;
+        const px = Math.round((cx + Math.cos(angle) * rr) / pebble) * pebble;
+        const py = Math.round((cy + Math.sin(angle) * rr) / pebble) * pebble;
         ctx.globalAlpha = 0.12 + srng() * 0.14;
         ctx.fillStyle = srng() > 0.5 ? '#ffffff' : '#8a6339';
-        ctx.beginPath();
-        ctx.arc(px, py, 2 + srng() * 4, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillRect(px, py, pebble, pebble);
       }
       ctx.globalAlpha = 1;
       ctx.restore();
-      ctx.restore();
     }
 
-    // Tapis d'herbe peint à la main (pas une texture répétée), contenu
-    // strictement dans l'île grâce au clip.
+    // Variations d'usure sur l'herbe : anciennes taches rondes remplacées
+    // par des cases éclaircies/assombries, pour ne pas casser la grille.
     ctx.save();
-    pathFrom(grassPts);
-    ctx.clip();
+    ctx.clip(grassPath);
     const rng = mathUtils.mulberry32(mathUtils.hashString(world.id));
-    const spots = Math.round((w * h) / 4200);
+    const spots = Math.round((w * h) / 9000);
     for (let i = 0; i < spots; i++) {
-      ctx.globalAlpha = 0.05 + rng() * 0.06;
+      const px = Math.floor((rng() * w) / TERRAIN_CELL) * TERRAIN_CELL;
+      const py = Math.floor((rng() * h) / TERRAIN_CELL) * TERRAIN_CELL;
+      ctx.globalAlpha = 0.05 + rng() * 0.05;
       ctx.fillStyle = rng() > 0.5 ? '#ffffff' : '#000000';
-      ctx.beginPath();
-      ctx.arc(rng() * w, rng() * h, 3 + rng() * 7, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillRect(px, py, TERRAIN_CELL, TERRAIN_CELL);
     }
     ctx.globalAlpha = 1;
     ctx.restore();
 
-    // Petit étang niché dans l'herbe (voir world.pond) : liseré de rive
-    // (sable clair) puis eau, avec quelques nénuphars.
+    // Petit étang niché dans l'herbe (voir world.pond) : rive de sable
+    // clair puis eau, découpés à la case comme le reste.
     if (world.pond) {
       const pond = world.pond;
-      const px = cx + pond.x;
-      const py = cy + pond.y;
+      const ox = cx + pond.x;
+      const oy = cy + pond.y;
+      const insideEllipse = (k) => (px, py) => {
+        const dx = (px - ox) / (pond.rx * k);
+        const dy = (py - oy) / (pond.ry * k);
+        return dx * dx + dy * dy <= 1;
+      };
+      const shorePath = cellRegionPath(w, h, insideEllipse(1.14));
+      const waterPath = cellRegionPath(w, h, insideEllipse(1));
       ctx.save();
-      pathFrom(grassPts);
-      ctx.clip();
-      fillPath(ctx, hex(world.sandColor), shade(hex(world.sandColor), -0.15), 2, () => {
-        ctx.ellipse(px, py, pond.rx * 1.14, pond.ry * 1.14, 0, 0, Math.PI * 2);
-      });
-      const pondGrad = ctx.createRadialGradient(px, py, 0, px, py, Math.max(pond.rx, pond.ry));
+      ctx.clip(grassPath);
+      ctx.fillStyle = hex(world.sandColor);
+      ctx.fill(shorePath);
+      const pondGrad = ctx.createRadialGradient(ox, oy, 0, ox, oy, Math.max(pond.rx, pond.ry));
       pondGrad.addColorStop(0, hex(world.waterColor));
       pondGrad.addColorStop(1, hex(world.waterColor2));
-      fillPath(ctx, pondGrad, shade(hex(world.waterColor2), -0.2), 3, () => {
-        ctx.ellipse(px, py, pond.rx, pond.ry, 0, 0, Math.PI * 2);
-      });
+      ctx.fillStyle = pondGrad;
+      ctx.fill(waterPath);
       const prng = mathUtils.mulberry32(mathUtils.hashString(world.id) + 23);
       for (let i = 0; i < 5; i++) {
         const a = prng() * Math.PI * 2;
         const rr = prng() * 0.6;
-        const lx = px + Math.cos(a) * pond.rx * rr;
-        const ly = py + Math.sin(a) * pond.ry * rr;
-        fillPath(ctx, '#4f8a5c', 'rgba(0,0,0,0.25)', 1.5, () => {
-          ctx.ellipse(lx, ly, 9, 6, 0, 0, Math.PI * 2);
-        });
+        const lx = Math.round((ox + Math.cos(a) * pond.rx * rr) / (TERRAIN_CELL / 2)) * (TERRAIN_CELL / 2);
+        const ly = Math.round((oy + Math.sin(a) * pond.ry * rr) / (TERRAIN_CELL / 2)) * (TERRAIN_CELL / 2);
+        ctx.fillStyle = '#4f8a5c';
+        ctx.fillRect(lx, ly, TERRAIN_CELL / 2, TERRAIN_CELL / 2);
       }
       ctx.restore();
     }
