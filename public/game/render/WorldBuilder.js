@@ -67,6 +67,22 @@ window.Game = window.Game || {};
     pineBig: { url: withVersion('/assets/sprites/trees/pine_big.png'), w: 147, h: 203 },
     fruitTree: { url: withVersion('/assets/sprites/trees/fruit_tree.png'), w: 145, h: 156 },
     deadTree: { url: withVersion('/assets/sprites/trees/dead_tree.png'), w: 122, h: 154 },
+    // --- Reliefs (fiche des textures : falaises, rochers) ---
+    cliffHigh: { url: withVersion('/assets/sprites/reliefs/cliff_high.png'), w: 129, h: 117 },
+    cliffMid: { url: withVersion('/assets/sprites/reliefs/cliff_mid.png'), w: 129, h: 103 },
+    cliffLow: { url: withVersion('/assets/sprites/reliefs/cliff_low.png'), w: 129, h: 105 },
+    plateauBlock: { url: withVersion('/assets/sprites/reliefs/plateau.png'), w: 129, h: 105 },
+    cornerOuter: { url: withVersion('/assets/sprites/reliefs/corner_outer.png'), w: 93, h: 104 },
+    cornerInner: { url: withVersion('/assets/sprites/reliefs/corner_inner.png'), w: 93, h: 104 },
+    slopeBlock: { url: withVersion('/assets/sprites/reliefs/slope.png'), w: 98, h: 104 },
+    rockBig: { url: withVersion('/assets/sprites/reliefs/rock_big.png'), w: 109, h: 79 },
+    rockSmall: { url: withVersion('/assets/sprites/reliefs/rock_small.png'), w: 62, h: 45 },
+    // --- Plantes (fiche des textures : herbe / végétation) ---
+    bushSprite: { url: withVersion('/assets/sprites/plants/bush.png'), w: 87, h: 72 },
+    tuftSprite: { url: withVersion('/assets/sprites/plants/tuft.png'), w: 58, h: 58 },
+    flowersBlue: { url: withVersion('/assets/sprites/plants/flowers_blue.png'), w: 46, h: 49 },
+    flowersRed: { url: withVersion('/assets/sprites/plants/flowers_red.png'), w: 67, h: 60 },
+    flowersWhite: { url: withVersion('/assets/sprites/plants/flowers_white.png'), w: 66, h: 63 },
   };
   // type de décor (voir WORLD.decor / WORLD.landmarks) -> pioche parmi
   // plusieurs sprites (répétés pour pondérer les chances de tirage).
@@ -79,7 +95,33 @@ window.Game = window.Game || {};
     pine: ['leafTree', 'leafTree', 'leafTree', 'leafTreeBig'],
     appleTree: ['fruitTree'],
     deadTree: ['deadTree'],
+    // Plantes et rochers : sprites de la fiche des textures, à la place
+    // des icônes peintes à la main (voir ICONS, conservées comme repli).
+    bush: ['bushSprite'],
+    flower: ['flowersBlue', 'flowersRed', 'flowersWhite'],
+    tuft: ['tuftSprite'],
+    rock: ['rockSmall', 'rockSmall', 'rockBig'],
+    // Blocs de relief (voir MOUNTAIN_TYPES / buildMountain) : falaises
+    // vues de trois-quarts, avec le pan rocheux tourné vers le joueur.
+    cliffHigh: ['cliffHigh'],
+    cliffMid: ['cliffMid'],
+    cliffLow: ['cliffLow'],
+    cliffPlateau: ['plateauBlock'],
+    cliffCornerOuter: ['cornerOuter'],
+    cliffCornerInner: ['cornerInner'],
+    cliffSlope: ['slopeBlock'],
   };
+
+  // Types dessinés à l'échelle native du sprite (voir
+  // makeScaledSpriteProp) : les blocs de relief gardent leurs
+  // proportions d'origine pour rester jointifs et empilables.
+  // Décors "hauts" : seuls ceux-là s'espacent entre eux (voir minSpacing).
+  const TALL_DECOR_TYPES = new Set(['tree', 'pine', 'appleTree', 'deadTree', 'bush']);
+
+  const SCALED_SPRITE_TYPES = new Set([
+    'cliffHigh', 'cliffMid', 'cliffLow', 'cliffPlateau',
+    'cliffCornerOuter', 'cliffCornerInner', 'cliffSlope',
+  ]);
 
   const _treeSpriteImages = {};
   function getTreeSpriteImage(key) {
@@ -387,6 +429,22 @@ window.Game = window.Game || {};
     return { type, x, y, canvas: img, worldW, worldH, rotation: rotation || 0 };
   }
 
+  /** Prop dessiné à l'échelle NATIVE du sprite (× scale) : utilisé pour
+   * les blocs de relief, dont les proportions relatives (un bloc haut est
+   * plus haut qu'un bloc bas, un coin est plus étroit) portent justement
+   * l'effet de relief — les redimensionner à hauteur constante l'aplatit. */
+  function makeScaledSpriteProp(type, x, y, rng, scale) {
+    const spriteKey = pickTreeSpriteKey(type, rng);
+    const def = TREE_SPRITE_DEFS[spriteKey];
+    return {
+      type, x, y,
+      canvas: getTreeSpriteImage(spriteKey),
+      worldW: def.w * scale,
+      worldH: def.h * scale,
+      rotation: 0,
+    };
+  }
+
 
   // ------------------------------------------------------------------
   // Petits utilitaires couleur (remplacent THREE.Color de l'ancienne
@@ -505,6 +563,71 @@ window.Game = window.Game || {};
   const DOCK_X = Math.cos(DOCK_ANGLE) * DOCK_R;
   const DOCK_Y = Math.sin(DOCK_ANGLE) * DOCK_R;
 
+  // ------------------------------------------------------------------
+  // Massif rocheux du nord (voir sprites de reliefs de la fiche).
+  // ------------------------------------------------------------------
+  // Les blocs sont posés en RANGÉES du fond vers l'avant : la rangée la
+  // plus au nord (y le plus petit) utilise les blocs les plus HAUTS, les
+  // rangées suivantes descendent vers le joueur en blocs de plus en plus
+  // BAS, décalées vers le sud d'un peu moins que la hauteur du pan
+  // rocheux. Comme les props sont triés par y et ancrés sur leur base,
+  // chaque rangée recouvre le pied de celle de derrière : on ne voit que
+  // les faces rocheuses tournées vers la caméra, empilées en terrasses —
+  // c'est ce qui donne la profondeur (et pas un simple aplat de sprites).
+  const MOUNTAIN = { x: 0, y: -250, scale: 1.35 };
+  const MB = { high: 129, mid: 129, low: 129, corner: 93, slope: 98 }; // largeurs natives
+
+  function buildMountainLandmarks() {
+    const S = MOUNTAIN.scale;
+    const w = MB.high * S;      // largeur d'un bloc de rangée (174)
+    const rowStep = 66;         // décalage sud entre deux terrasses
+    const out = [];
+    const row = (types, y, xs) => {
+      types.forEach((t, i) => out.push({ type: t, x: MOUNTAIN.x + xs[i], y: MOUNTAIN.y + y, scale: S }));
+    };
+    // Sommet (2 blocs hauts, au fond)
+    row(['cliffHigh', 'cliffHigh'], -rowStep * 2, [-w / 2, w / 2]);
+    // Terrasse intermédiaire (4 blocs moyens)
+    row(['cliffMid', 'cliffMid', 'cliffMid', 'cliffMid'], -rowStep, [-w * 1.5, -w * 0.5, w * 0.5, w * 1.5]);
+    // Terrasse basse, face au joueur : coin arrondi à gauche, rampe
+    // d'accès (pente) au centre, coin à droite.
+    row(
+      ['cliffCornerOuter', 'cliffLow', 'cliffSlope', 'cliffLow', 'cliffCornerOuter'],
+      0,
+      [-w * 1.5 - MB.corner * S * 0.35, -w * 0.75, 0, w * 0.75, w * 1.5 + MB.corner * S * 0.35]
+    );
+    // Arbres plantés sur le plateau : dessinés avant les blocs (y plus
+    // petit), donc leur pied disparaît derrière la falaise — ils ont l'air
+    // posés sur le sommet.
+    out.push({ type: 'tree', x: MOUNTAIN.x - 96, y: MOUNTAIN.y - rowStep * 2 - 96, scale: 0.95 });
+    out.push({ type: 'tree', x: MOUNTAIN.x + 104, y: MOUNTAIN.y - rowStep * 2 - 108, scale: 1.05 });
+    out.push({ type: 'tree', x: MOUNTAIN.x + 6, y: MOUNTAIN.y - rowStep * 2 - 128, scale: 0.85 });
+    // Éboulis au pied du massif.
+    out.push({ type: 'rock', x: MOUNTAIN.x - w * 1.9, y: MOUNTAIN.y + 26, scale: 1.2 });
+    out.push({ type: 'rock', x: MOUNTAIN.x + w * 1.85, y: MOUNTAIN.y + 34, scale: 1.1 });
+    out.push({ type: 'rock', x: MOUNTAIN.x - w * 0.35, y: MOUNTAIN.y + 40, scale: 0.9 });
+    return out;
+  }
+
+  /** Empreintes au sol des blocs de relief : rectangles infranchissables
+   * (le joueur contourne le massif au lieu de le traverser). Calculées
+   * depuis les mêmes rangées que buildMountainLandmarks. */
+  function buildMountainFootprints() {
+    const S = MOUNTAIN.scale;
+    return buildMountainLandmarks()
+      .filter((l) => SCALED_SPRITE_TYPES.has(l.type))
+      .map((l) => {
+        const key = TREE_TYPE_POOLS[l.type][0];
+        const def = TREE_SPRITE_DEFS[key];
+        const bw = def.w * S;
+        const bh = def.h * S;
+        return {
+          x0: l.x - bw / 2, x1: l.x + bw / 2,
+          y0: l.y - bh * 0.42, y1: l.y, // seul le pied du bloc bloque
+        };
+      });
+  }
+
   const WORLD = {
     id: WORLD_ID,
     name: 'Île de départ',
@@ -546,16 +669,17 @@ window.Game = window.Game || {};
       { type: 'deadTree', count: 2, angleRange: [deg(-150), deg(-25)], spreadRange: [0.4, 0.85] },
       { type: 'tree', count: 7, spreadRange: [0.2, 0.7] },
       { type: 'appleTree', count: 3, spreadRange: [0.3, 0.6] },
-      { type: 'bush', count: 14, spreadRange: [0.2, 0.85] },
+      { type: 'bush', count: 18, spreadRange: [0.2, 0.85] },
+      { type: 'tuft', count: 22, spreadRange: [0.18, 0.9] },
       { type: 'rock', count: 16, spreadRange: [0.3, 0.95] },
       { type: 'mushroom', count: 10, angleRange: [deg(-150), deg(-25)], spreadRange: [0.35, 0.85] },
-      { type: 'flower', count: 16, spreadRange: [0.2, 0.9] },
+      { type: 'flower', count: 26, spreadRange: [0.2, 0.9] },
       { type: 'stump', count: 5, angleRange: [deg(-150), deg(-25)], spreadRange: [0.35, 0.85] },
     ],
     landmarks: [
-      // Affleurement rocheux boisé au sommet nord de l'île.
-      { type: 'rockPlateau', x: 0, y: -300, scale: 1 },
-      { type: 'pine', x: 40, y: -370, scale: 1.05 },
+      // Massif rocheux en terrasses au nord de l'île (remplace l'ancien
+      // affleurement peint à la main) — voir buildMountainLandmarks.
+      ...buildMountainLandmarks(),
       // Ponton en bois vers l'est, tourné pour s'avancer sur l'eau.
       {
         type: 'dock', x: DOCK_X, y: DOCK_Y, scale: DOCK_LEN / 300,
@@ -589,8 +713,27 @@ window.Game = window.Game || {};
    * Résout un déplacement (prevX, prevY) -> (nextX, nextY) en tenant
    * compte du contour de l'île (clampToIsland).
    */
+  // Empreintes des blocs de relief, calculées une seule fois.
+  const _mountainFootprints = buildMountainFootprints();
+
+  /** Le point (x, y) est-il dans le pied d'un bloc de falaise ? */
+  function isInsideRelief(x, y, margin = 0) {
+    for (const f of _mountainFootprints) {
+      if (x > f.x0 - margin && x < f.x1 + margin && y > f.y0 - margin && y < f.y1 + margin) return true;
+    }
+    return false;
+  }
+
   function resolvePlayerMove(prevX, prevY, nextX, nextY, margin = 0) {
-    return clampToIsland(nextX, nextY, margin);
+    const p = clampToIsland(nextX, nextY, margin);
+    if (!isInsideRelief(p.x, p.y, margin)) return p;
+    // Glissement le long de l'obstacle : on tente d'abord le déplacement
+    // horizontal seul, puis le vertical seul, avant de tout annuler.
+    const slideX = clampToIsland(nextX, prevY, margin);
+    if (!isInsideRelief(slideX.x, slideX.y, margin)) return slideX;
+    const slideY = clampToIsland(prevX, nextY, margin);
+    if (!isInsideRelief(slideY.x, slideY.y, margin)) return slideY;
+    return { x: prevX, y: prevY };
   }
 
   // Icône = fonction(ctx, w, h, rng, accent) qui peint sur un canvas w×h
@@ -967,8 +1110,8 @@ window.Game = window.Game || {};
 
   // Taille "monde" (largeur, hauteur) en pixels de chaque type de décor.
   const DECOR_SIZE = {
-    tree: [90, 138], appleTree: [90, 138], pine: [66, 152], deadTree: [64, 134], bush: [44, 36],
-    rock: [36, 24], mushroom: [27, 32], flower: [22, 34], stump: [46, 30],
+    tree: [90, 138], appleTree: [90, 138], pine: [66, 152], deadTree: [64, 134], bush: [70, 58],
+    rock: [46, 33], mushroom: [27, 32], flower: [36, 34], tuft: [44, 44], stump: [46, 30],
     barrel: [30, 40], signpost: [46, 92], campfire: [76, 56],
     gardenPatch: [200, 150], dock: [96, 300], boat: [70, 50],
     lamp: [29, 72], cabin: [230, 260], rockPlateau: [260, 210],
@@ -1328,6 +1471,14 @@ window.Game = window.Game || {};
 
   function buildLandmarkZones() {
     return WORLD.landmarks.map((l) => {
+      // Blocs de relief : leur "taille" est celle du sprite, pas une
+      // entrée de DECOR_SIZE — sans ça le rayon d'exclusion serait
+      // ridiculement petit et des arbres pousseraient dans la falaise.
+      if (SCALED_SPRITE_TYPES.has(l.type)) {
+        const def = TREE_SPRITE_DEFS[TREE_TYPE_POOLS[l.type][0]];
+        const r = Math.max(def.w, def.h) * (l.scale || 1) * 0.66;
+        return { x: l.x, y: l.y, r };
+      }
       const size = DECOR_SIZE[l.type] || [60, 60];
       const r = Math.max(size[0], size[1]) * (l.scale || 1) * 0.62;
       return { x: l.x, y: l.y, r };
@@ -1363,7 +1514,10 @@ window.Game = window.Game || {};
       // sans ça, le tirage purement aléatoire produit des paquets
       // d'arbres agglutinés par endroits (voir _placedTall, partagé
       // entre toutes les entrées de WORLD.decor).
-      const minSpacing = TREE_TYPE_POOLS[type] || type === 'bush' ? size[0] * 1.05 + 20 : 0;
+      // (uniquement les éléments "hauts" : depuis que fleurs, touffes et
+      // rochers sont eux aussi des sprites, les inclure dans _placedTall
+      // repousserait les arbres pour un simple bouquet de fleurs.)
+      const minSpacing = TALL_DECOR_TYPES.has(type) ? size[0] * 1.05 + 20 : 0;
       for (let i = 0; i < count; i++) {
         let x = 0, y = 0, tries = 0, placed = false;
         while (tries < 60) {
@@ -1399,6 +1553,10 @@ window.Game = window.Game || {};
     WORLD.landmarks.forEach((l) => {
       const size = DECOR_SIZE[l.type] || [60, 60];
       const scale = l.scale || 1;
+      if (SCALED_SPRITE_TYPES.has(l.type)) {
+        props.push(makeScaledSpriteProp(l.type, l.x, l.y, rng, scale));
+        return;
+      }
       if (TREE_TYPE_POOLS[l.type]) {
         props.push(makeTreeProp(l.type, l.x, l.y, rng, size[1] * scale, l.rotation));
         return;
