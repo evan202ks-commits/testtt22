@@ -112,6 +112,22 @@ window.Game = window.Game || {};
 
   // Taille à l'écran du personnage (pixels), proche du gabarit relatif
   // qu'avait la créature dans l'ancienne version 3D par rapport aux arbres.
+  // ------------------------------------------------------------------
+  // Vent
+  // ------------------------------------------------------------------
+  // Amplitude de base du balancement, exprimée en fraction de la hauteur
+  // du décor : une cime se décale au maximum d'environ 3 % de sa hauteur
+  // (≈ 4 px pour un arbre de 140 px). Monter cette valeur = tempête.
+  const WIND_STRENGTH = 0.032;
+
+  /** Hash déterministe 2D -> [0,1[ : sert à semer les touffes d'herbe
+   * animées toujours au même endroit sans rien mémoriser. */
+  function hash2(x, y) {
+    let n = Math.imul(Math.round(x), 374761393) ^ Math.imul(Math.round(y), 668265263);
+    n = Math.imul(n ^ (n >>> 13), 1274126177);
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+  }
+
   const CHAR_HEIGHT = 88;
   const CHAR_WIDTH = CHAR_HEIGHT * (FRAME_W / FRAME_H);
 
@@ -356,6 +372,79 @@ window.Game = window.Game || {};
       this.ctx.restore();
     }
 
+    /**
+     * Décalage horizontal de la CIME d'un décor souple sous le vent, en
+     * pixels (la base, elle, ne bouge pas — voir _drawProp).
+     *
+     * Trois composantes qui se superposent :
+     *  - `gust`   : de longues rafales lentes, l'intensité générale monte
+     *               et retombe (le vent n'est jamais constant) ;
+     *  - `wave`   : l'ondulation principale, décalée selon la position
+     *               dans le monde → la vague traverse l'île au lieu de
+     *               faire bouger tout le décor à l'unisson ;
+     *  - `flutter`: un frémissement plus rapide et plus petit, qui casse
+     *               la régularité du balancement.
+     * `swayPhase` (posé à la construction) désynchronise chaque plante.
+     */
+    _swayOffset(prop) {
+      if (!prop.sway) return 0;
+      const t = this._windTime || 0;
+      const phase = prop.swayPhase || 0;
+      const gust = 0.72 + 0.5 * Math.sin(t * 0.29 + 1.7);
+      const wave = Math.sin(t * 1.7 - (prop.x + prop.y * 0.55) * 0.0055 + phase);
+      const flutter = 0.3 * Math.sin(t * 4.3 + phase * 2.1);
+      return prop.worldH * prop.sway * WIND_STRENGTH * gust * (wave + flutter);
+    }
+
+    /**
+     * Touffes d'herbe animées, semées sur les cases d'herbe visibles à
+     * l'écran. Elles ne sont pas stockées comme props : on les regénère
+     * chaque frame à partir d'un hash de leur position (donc toujours au
+     * même endroit, sans rien garder en mémoire), et seules celles dans
+     * le cadre sont dessinées. C'est ce qui donne l'impression que le sol
+     * lui-même respire, alors que le canvas du sol est figé.
+     */
+    _drawWindGrass() {
+      const WB = window.Game.WorldBuilder;
+      if (!WB || !WB.getGrassBladeImage) return;
+      const img = WB.getGrassBladeImage();
+      if (!img || !img.complete || !img.naturalWidth) return;
+
+      const STEP = 52;          // une touffe possible tous les 2 cases
+      const CHANCE = 0.4;
+      const ctx = this.ctx;
+      const left = this._camX - this.width / 2;
+      const top = this._camY - this.height / 2;
+      const x0 = Math.floor(left / STEP) * STEP;
+      const y0 = Math.floor(top / STEP) * STEP;
+      const t = this._windTime || 0;
+
+      ctx.save();
+      ctx.globalAlpha = 0.9;
+      for (let wy = y0; wy < top + this.height + STEP; wy += STEP) {
+        for (let wx = x0; wx < left + this.width + STEP; wx += STEP) {
+          const h1 = hash2(wx, wy);
+          if (h1 > CHANCE) continue;
+          const gx = wx + hash2(wx + 7, wy) * STEP;
+          const gy = wy + hash2(wx, wy + 13) * STEP;
+          if (WB.terrainAt(gx, gy) !== '.') continue; // ni sable, ni chemin, ni eau
+          const h = 20 + h1 * 42; // hauteur du brin
+          const w = h * 1.05;
+          const phase = h1 * Math.PI * 6;
+          const gust = 0.72 + 0.5 * Math.sin(t * 0.29 + 1.7);
+          const wave = Math.sin(t * 1.7 - (gx + gy * 0.55) * 0.0055 + phase);
+          const dx = h * 3.2 * WIND_STRENGTH * gust * (wave + 0.3 * Math.sin(t * 4.3 + phase * 2.1));
+          const p = this.worldToScreen(gx, gy);
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.transform(1, 0, -dx / h, 1, 0, 0);
+          ctx.drawImage(img, -w / 2, -h, w, h);
+          ctx.restore();
+        }
+      }
+      ctx.restore();
+    }
+
     _drawProp(prop) {
       const p = this.worldToScreen(prop.x, prop.y);
       this._drawShadow(p.x, p.y, prop.worldW * 0.28);
@@ -373,6 +462,18 @@ window.Game = window.Game || {};
           prop.worldW,
           prop.worldH
         );
+        this.ctx.restore();
+        return;
+      }
+      // Vent : cisaillement vertical du sprite. Le repère est posé à la
+      // BASE du décor, donc le pied reste immobile et le décalage croît
+      // vers le haut — le tronc à peine, la cime pleinement.
+      const dx = this._swayOffset(prop);
+      if (dx) {
+        this.ctx.save();
+        this.ctx.translate(p.x, p.y);
+        this.ctx.transform(1, 0, -dx / prop.worldH, 1, 0, 0);
+        this.ctx.drawImage(prop.canvas, -prop.worldW / 2, -prop.worldH, prop.worldW, prop.worldH);
         this.ctx.restore();
         return;
       }
@@ -537,11 +638,15 @@ window.Game = window.Game || {};
 
     render(dt, players, projectiles) {
       const ctx = this.ctx;
+      // Horloge du vent : une seule valeur qui avance avec le temps,
+      // partagée par les brins d'herbe et tous les feuillages.
+      this._windTime = (this._windTime || 0) + (dt || 0);
       ctx.clearRect(0, 0, this.width, this.height);
       ctx.fillStyle = '#3a2b52';
       ctx.fillRect(0, 0, this.width, this.height);
 
       this._drawGround();
+      this._drawWindGrass();
 
       // Tri par profondeur (peintre) : décor (déjà trié par y à la
       // construction) fusionné avec les joueurs (dynamiques) triés eux

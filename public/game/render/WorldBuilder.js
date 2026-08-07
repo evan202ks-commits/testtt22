@@ -1322,6 +1322,30 @@ window.Game = window.Game || {};
    * référence : la planche fournit déjà les bonnes proportions entre
    * feuillus, conifères et grands arbres, il suffit de les réduire). */
   const TREE_WORLD_SCALE = 0.74;
+
+  // ------------------------------------------------------------------
+  // Vent : souplesse de chaque décor.
+  // ------------------------------------------------------------------
+  // `sway` = à quel point le prop se penche sous le vent (0 = rigide).
+  // Le rendu (WorldRenderer._swayOffset) l'utilise pour cisailler le
+  // sprite : la base reste plantée au sol, la cime part sur le côté.
+  // `swayPhase` décale chaque plante dans le temps pour qu'elles ne
+  // bougent pas toutes en même temps.
+  const SWAY_BY_TYPE = {
+    tree: 1, pine: 1, appleTree: 1, deadTree: 0.55,
+    bush: 1.05, tuft: 2.4, flower: 2, // plus c'est petit, plus ça plie
+    rock: 0, mushroom: 0.3, stump: 0,
+    dock: 0, lamp: 0, cabin: 0, boat: 0, barrel: 0, signpost: 0, campfire: 0,
+  };
+  /** Marque un prop comme souple (ou non) et lui donne sa phase de vent. */
+  function applySway(prop, type, rng) {
+    if (!prop) return prop;
+    const amount = SWAY_BY_TYPE[type];
+    prop.sway = amount == null ? 0 : amount;
+    prop.swayPhase = rng() * Math.PI * 2;
+    return prop;
+  }
+
   function makeTreeFromKey(key, x, y, scale) {
     const def = TREE_SPRITE_DEFS[key];
     if (!def) return null;
@@ -1350,19 +1374,22 @@ window.Game = window.Game || {};
     (ISLAND.props || []).forEach((p) => {
       if (p.t === 'tree') {
         const prop = makeTreeFromKey(p.s, p.x, p.y, 0.9 + rng() * 0.22);
-        if (prop) props.push(prop);
+        if (prop) props.push(applySway(prop, 'tree', rng));
         return;
       }
       if (TREE_TYPE_POOLS[p.t]) {
         const size = DECOR_SIZE[p.t] || [40, 50];
-        props.push(makeTreeProp(p.t, p.x, p.y, rng, size[1] * (0.85 + rng() * 0.3)));
+        props.push(applySway(makeTreeProp(p.t, p.x, p.y, rng, size[1] * (0.85 + rng() * 0.3)), p.t, rng));
         return;
       }
       const size = DECOR_SIZE[p.t] || [40, 50];
       const canvas = buildDecorCanvas(p.t, rng, WORLD.accentColor);
       if (!canvas) return;
       const scale = 0.85 + rng() * 0.3;
-      props.push({ type: p.t, x: p.x, y: p.y, canvas, worldW: size[0] * scale, worldH: size[1] * scale });
+      props.push(applySway(
+        { type: p.t, x: p.x, y: p.y, canvas, worldW: size[0] * scale, worldH: size[1] * scale },
+        p.t, rng
+      ));
     });
 
     WORLD.landmarks.forEach((l) => {
@@ -1392,5 +1419,11 @@ window.Game = window.Game || {};
     return { world: WORLD, ground, props };
   }
 
-  window.Game.WorldBuilder = { WORLD, buildWorld, clampToIsland, resolvePlayerMove, onGroundTexturesReady };
+  window.Game.WorldBuilder = {
+    WORLD, buildWorld, clampToIsland, resolvePlayerMove, onGroundTexturesReady,
+    // Utilisés par WorldRenderer pour la couche d'herbe animée : elle ne
+    // pousse que sur les cases d'herbe ('.') de la grille.
+    terrainAt, TERRAIN_CELL,
+    getGrassBladeImage: () => getTreeSpriteImage('tuftSprite'),
+  };
 })();
