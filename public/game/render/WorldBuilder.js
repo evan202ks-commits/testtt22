@@ -101,7 +101,7 @@ window.Game = window.Game || {};
     flower: ['flowersBlue', 'flowersRed', 'flowersWhite'],
     tuft: ['tuftSprite'],
     rock: ['rockSmall', 'rockSmall', 'rockBig'],
-    // Blocs de relief (voir MOUNTAIN_TYPES / buildMountain) : falaises
+    // Blocs de relief (voir MASSIF / buildMassifLandmarks) : falaises
     // vues de trois-quarts, avec le pan rocheux tourné vers le joueur.
     cliffHigh: ['cliffHigh'],
     cliffMid: ['cliffMid'],
@@ -185,6 +185,9 @@ window.Game = window.Game || {};
     waterSparkle2: '/assets/sprites/details/water_sparkle_2.png',
     waterSparkle3: '/assets/sprites/details/water_sparkle_3.png',
     waterFoamBits: '/assets/sprites/details/water_foam_bits.png',
+    // Pan rocheux du massif : bande tuilable horizontalement (104×90),
+    // frange d'herbe comprise en haut — voir drawMassif.
+    cliffFace: '/assets/sprites/reliefs/cliff_face.png',
   };
   const DECAL_SIZE = 52; // 2 cases de terrain
 
@@ -498,241 +501,174 @@ window.Game = window.Game || {};
   }
 
   // ------------------------------------------------------------------
-  // Forme de l'île : ellipse (radiusX, radiusY) modulée par quelques
-  // harmoniques sinusoïdales déterministes (même seed => même côte
-  // "grignotée" à chaque partie, comme sur une vraie petite île).
-  // radius(angle) donne la distance du centre jusqu'à la falaise pour un
-  // angle donné (repère standard : x = cos(angle)*r, y = sin(angle)*r).
+  // L'ÎLE : relevée case par case sur l'image de référence.
   // ------------------------------------------------------------------
-  function makeIslandRadiusFn(seed, radiusX, radiusY) {
-    const rng = mathUtils.mulberry32(seed);
-    const harmonics = [2, 3, 5, 7].map((freq) => ({
-      freq: freq + (rng() < 0.5 ? 0 : 1),
-      amp: 0.05 + rng() * 0.09,
-      phase: rng() * Math.PI * 2,
-    }));
-    return function islandRadius(angle) {
-      const ellipseR = 1 / Math.sqrt(
-        (Math.cos(angle) / radiusX) ** 2 + (Math.sin(angle) / radiusY) ** 2
-      );
-      let noise = 1;
-      harmonics.forEach((hn) => {
-        noise += hn.amp * Math.sin(hn.freq * angle + hn.phase);
-      });
-      return ellipseR * Math.max(0.72, noise);
-    };
+  // Le contour n'est plus généré (ellipse + harmoniques) : il est LU
+  // dans game/render/IslandData.js, une grille de cases de 26 px où
+  // chaque caractère décrit un type de terrain ('~' eau, '.' herbe,
+  // 's' sable, 'd' chemin, 'o' étang, '^' plateau). Tout le reste —
+  // rendu du sol, collisions, placement des décors — dérive de cette
+  // grille, ce qui reproduit la côte, les plages, l'étang, les chemins
+  // et le massif nord exactement comme sur la référence.
+  // ------------------------------------------------------------------
+  const ISLAND = (window.Game && window.Game.IslandData) || { cell: 26, rows: [], props: [] };
+  const MAP_ROWS = ISLAND.rows;
+  const MAP_H = MAP_ROWS.length;
+  const MAP_W = MAP_H ? MAP_ROWS[0].length : 0;
+  const MAP_OX = (MAP_W * TERRAIN_CELL) / 2; // décalage grille -> monde
+  const MAP_OY = (MAP_H * TERRAIN_CELL) / 2;
+  const WATER_MARGIN = 260; // marge d'eau visible au-delà de la côte
+
+  const LAND_CHARS = '.sd^';   // cases où l'on marche
+  const GROUND_CHARS = '.sd^o'; // cases d'île (l'étang compris)
+
+  /** Caractère de la case (col, row) — '~' hors carte. */
+  function cellChar(col, row) {
+    if (col < 0 || row < 0 || row >= MAP_H || col >= MAP_W) return '~';
+    return MAP_ROWS[row][col];
+  }
+  const colOf = (x) => Math.floor((x + MAP_OX) / TERRAIN_CELL);
+  const rowOf = (y) => Math.floor((y + MAP_OY) / TERRAIN_CELL);
+  /** Type de terrain sous un point du monde. */
+  function terrainAt(x, y) {
+    return cellChar(colOf(x), rowOf(y));
+  }
+  const isLandChar = (ch) => LAND_CHARS.indexOf(ch) >= 0;
+  const isGroundChar = (ch) => GROUND_CHARS.indexOf(ch) >= 0;
+  /** Point marchable ? (terre ferme, ni eau ni étang) */
+  function isWalkable(x, y) {
+    return isLandChar(terrainAt(x, y));
   }
 
-  function measureBounds(radiusFn, steps = 160) {
-    let maxAbsX = 0;
-    let maxAbsY = 0;
-    for (let i = 0; i < steps; i++) {
-      const angle = (i / steps) * Math.PI * 2;
-      const r = radiusFn(angle);
-      maxAbsX = Math.max(maxAbsX, Math.abs(Math.cos(angle) * r));
-      maxAbsY = Math.max(maxAbsY, Math.abs(Math.sin(angle) * r));
+  // Distance (en cases) de chaque case d'eau à la terre la plus proche —
+  // parcours en largeur depuis toutes les cases de sol. Sert à peindre
+  // les hauts-fonds et l'écume, et à semer les rochers immergés.
+  const WATER_DIST = (function computeWaterDistance() {
+    const dist = new Int16Array(MAP_W * MAP_H).fill(999);
+    const queue = [];
+    for (let row = 0; row < MAP_H; row++) {
+      for (let col = 0; col < MAP_W; col++) {
+        if (isGroundChar(cellChar(col, row))) {
+          dist[row * MAP_W + col] = 0;
+          queue.push(row * MAP_W + col);
+        }
+      }
     }
-    return { maxAbsX, maxAbsY };
+    for (let head = 0; head < queue.length; head++) {
+      const idx = queue[head];
+      const col = idx % MAP_W;
+      const row = (idx - col) / MAP_W;
+      const d = dist[idx] + 1;
+      [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([dc, dr]) => {
+        const nc = col + dc;
+        const nr = row + dr;
+        if (nc < 0 || nr < 0 || nc >= MAP_W || nr >= MAP_H) return;
+        const ni = nr * MAP_W + nc;
+        if (dist[ni] > d) {
+          dist[ni] = d;
+          queue.push(ni);
+        }
+      });
+    }
+    return dist;
+  })();
+  function waterDist(col, row) {
+    if (col < 0 || row < 0 || col >= MAP_W || row >= MAP_H) return 999;
+    return WATER_DIST[row * MAP_W + col];
+  }
+
+  // Rayon de terre par angle (720 échantillons) : uniquement pour les
+  // rares appels qui raisonnent encore en polaire. Le rendu et les
+  // collisions, eux, lisent directement la grille.
+  const RADIUS_TABLE = (function buildRadiusTable() {
+    const STEPS = 720;
+    const maxR = Math.hypot(MAP_OX, MAP_OY);
+    const table = new Float32Array(STEPS);
+    for (let i = 0; i < STEPS; i++) {
+      const angle = (i / STEPS) * Math.PI * 2;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      let last = 0;
+      for (let r = 0; r < maxR; r += TERRAIN_CELL / 2) {
+        if (isLandChar(terrainAt(cos * r, sin * r))) last = r;
+      }
+      table[i] = last;
+    }
+    return table;
+  })();
+  function landRadius(angle) {
+    const STEPS = RADIUS_TABLE.length;
+    let i = Math.round(((angle / (Math.PI * 2)) % 1) * STEPS);
+    i = ((i % STEPS) + STEPS) % STEPS;
+    return RADIUS_TABLE[i];
   }
 
   const WORLD_ID = 'starter-island';
-  const ISLAND_SEED = mathUtils.hashString(WORLD_ID);
-  const RADIUS_X = 760;
-  const RADIUS_Y = 480;
-  const CLIFF_BAND = 58; // largeur (px monde) de la bande de falaise
-  const WATER_MARGIN = 260; // marge d'eau visible au-delà de la côte
+  const CLIFF_WALL_H = 46;    // hauteur du pan rocheux de la côte
+  const PLATEAU_WALL_H = 58;  // hauteur du pan rocheux du plateau nord
+  const FACE_OVERHANG = 10;   // débord de la frange d'herbe sur le dessus
 
-  const islandRadiusFn = makeIslandRadiusFn(ISLAND_SEED, RADIUS_X, RADIUS_Y);
-  const bounds = measureBounds(islandRadiusFn);
-
-  // ------------------------------------------------------------------
-  // Config du monde. Une seule entrée : l'île de départ, un petit
-  // campement cosy (cabane, jardin, feu de camp, ponton) où tous les
-  // joueurs se retrouvent.
-  // ------------------------------------------------------------------
-  // Angle "monde" (atan2(y,x), y vers le bas) : 0 = est, +90° = sud,
-  // ±180° = ouest, -90° = nord. Sert à placer les éléments fixes de
-  // l'île de référence (ponton à l'est, forêt + affleurement rocheux au
-  // nord, plages au sud/sud-ouest) à des angles précis plutôt qu'au
-  // hasard.
-  const deg = (d) => (d * Math.PI) / 180;
-
-  const DOCK_ANGLE = deg(6); // ponton, légèrement sud-est (comme sur la référence)
-  const DOCK_R = islandRadiusFn(DOCK_ANGLE) - CLIFF_BAND * 0.4;
-  const DOCK_LEN = 300;
-  const DOCK_X = Math.cos(DOCK_ANGLE) * DOCK_R;
-  const DOCK_Y = Math.sin(DOCK_ANGLE) * DOCK_R;
-
-  // ------------------------------------------------------------------
-  // Massif rocheux du nord (voir sprites de reliefs de la fiche).
-  // ------------------------------------------------------------------
-  // Les blocs sont posés en RANGÉES du fond vers l'avant : la rangée la
-  // plus au nord (y le plus petit) utilise les blocs les plus HAUTS, les
-  // rangées suivantes descendent vers le joueur en blocs de plus en plus
-  // BAS, décalées vers le sud d'un peu moins que la hauteur du pan
-  // rocheux. Comme les props sont triés par y et ancrés sur leur base,
-  // chaque rangée recouvre le pied de celle de derrière : on ne voit que
-  // les faces rocheuses tournées vers la caméra, empilées en terrasses —
-  // c'est ce qui donne la profondeur (et pas un simple aplat de sprites).
-  const MOUNTAIN = { x: 0, y: -250, scale: 1.35 };
-  const MB = { high: 129, mid: 129, low: 129, corner: 93, slope: 98 }; // largeurs natives
-
-  function buildMountainLandmarks() {
-    const S = MOUNTAIN.scale;
-    const w = MB.high * S;      // largeur d'un bloc de rangée (174)
-    const rowStep = 66;         // décalage sud entre deux terrasses
-    const out = [];
-    const row = (types, y, xs) => {
-      types.forEach((t, i) => out.push({ type: t, x: MOUNTAIN.x + xs[i], y: MOUNTAIN.y + y, scale: S }));
-    };
-    // Sommet (2 blocs hauts, au fond)
-    row(['cliffHigh', 'cliffHigh'], -rowStep * 2, [-w / 2, w / 2]);
-    // Terrasse intermédiaire (4 blocs moyens)
-    row(['cliffMid', 'cliffMid', 'cliffMid', 'cliffMid'], -rowStep, [-w * 1.5, -w * 0.5, w * 0.5, w * 1.5]);
-    // Terrasse basse, face au joueur : coin arrondi à gauche, rampe
-    // d'accès (pente) au centre, coin à droite.
-    row(
-      ['cliffCornerOuter', 'cliffLow', 'cliffSlope', 'cliffLow', 'cliffCornerOuter'],
-      0,
-      [-w * 1.5 - MB.corner * S * 0.35, -w * 0.75, 0, w * 0.75, w * 1.5 + MB.corner * S * 0.35]
-    );
-    // Arbres plantés sur le plateau : dessinés avant les blocs (y plus
-    // petit), donc leur pied disparaît derrière la falaise — ils ont l'air
-    // posés sur le sommet.
-    out.push({ type: 'tree', x: MOUNTAIN.x - 96, y: MOUNTAIN.y - rowStep * 2 - 96, scale: 0.95 });
-    out.push({ type: 'tree', x: MOUNTAIN.x + 104, y: MOUNTAIN.y - rowStep * 2 - 108, scale: 1.05 });
-    out.push({ type: 'tree', x: MOUNTAIN.x + 6, y: MOUNTAIN.y - rowStep * 2 - 128, scale: 0.85 });
-    // Éboulis au pied du massif.
-    out.push({ type: 'rock', x: MOUNTAIN.x - w * 1.9, y: MOUNTAIN.y + 26, scale: 1.2 });
-    out.push({ type: 'rock', x: MOUNTAIN.x + w * 1.85, y: MOUNTAIN.y + 34, scale: 1.1 });
-    out.push({ type: 'rock', x: MOUNTAIN.x - w * 0.35, y: MOUNTAIN.y + 40, scale: 0.9 });
-    return out;
-  }
-
-  /** Empreintes au sol des blocs de relief : rectangles infranchissables
-   * (le joueur contourne le massif au lieu de le traverser). Calculées
-   * depuis les mêmes rangées que buildMountainLandmarks. */
-  function buildMountainFootprints() {
-    const S = MOUNTAIN.scale;
-    return buildMountainLandmarks()
-      .filter((l) => SCALED_SPRITE_TYPES.has(l.type))
-      .map((l) => {
-        const key = TREE_TYPE_POOLS[l.type][0];
-        const def = TREE_SPRITE_DEFS[key];
-        const bw = def.w * S;
-        const bh = def.h * S;
-        return {
-          x0: l.x - bw / 2, x1: l.x + bw / 2,
-          y0: l.y - bh * 0.42, y1: l.y, // seul le pied du bloc bloque
-        };
-      });
-  }
+  // Ponton : relevé à l'est sur la référence, il s'avance sur l'eau.
+  const DOCK_X = 640;
+  const DOCK_Y = 148;
+  const DOCK_LEN = 180;
 
   const WORLD = {
     id: WORLD_ID,
-    name: 'Île de départ',
-    subtitle: 'Petite île forestière',
-    halfWidth: bounds.maxAbsX + WATER_MARGIN,
-    halfHeight: bounds.maxAbsY + WATER_MARGIN,
-    groundColor: 0x8fcf7a,
-    groundColor2: 0x6fae5a,
+    name: 'Île du campement',
+    halfWidth: MAP_OX + WATER_MARGIN,
+    halfHeight: MAP_OY + WATER_MARGIN,
+    spawn: { x: DOCK_X - 150, y: DOCK_Y },
+    waterColor: 0x11487a,
+    waterColor2: 0x0a2f56,
+    groundColor: 0x6fae5a,
+    groundColor2: 0x4d8a44,
+    sandColor: 0xdcc08a,
+    sandColor2: 0xc2a06a,
     cliffColor: 0x8a5a34,
-    waterColor: 0x2f7fbf,
-    waterColor2: 0x0f3f66,
-    sandColor: 0xe4c98a,
-    sandColor2: 0xd4b06e,
-    accentColor: 0xffd76a,
-    // Petit étang niché au nord-ouest de l'île, comme sur la référence.
-    pond: { x: -220, y: -60, rx: 118, ry: 92 },
-    // Plages de sable : bandes qui grignotent la côte herbeuse sur des
-    // secteurs angulaires précis (sud et sud-ouest), avec une profondeur
-    // qui s'estompe en douceur vers les bords du secteur.
-    sandZones: [
-      { angle: deg(120), width: deg(70), depth: 150 },
-      { angle: deg(200), width: deg(80), depth: 190 },
-    ],
-    // Point d'arrivée : juste au bout du ponton, comme un joueur qui
-    // vient de débarquer sur l'île.
-    spawn: { x: DOCK_X - 40, y: DOCK_Y - 6 },
-    boundaryRadius: islandRadiusFn,
-    grassRadius(angle) {
-      return islandRadiusFn(angle) - CLIFF_BAND;
-    },
-    // Décor semé aléatoirement. angleRange/spreadRange (optionnels)
-    // limitent respectivement le secteur angulaire et la distance au
-    // centre (fraction du rayon) où le type peut apparaître — utilisé
-    // pour concentrer les conifères au nord (forêt) et laisser le reste
-    // de l'île plus clairsemé, comme sur la référence.
-    decor: [
-      { type: 'pine', count: 15, angleRange: [deg(-150), deg(-25)], spreadRange: [0.3, 0.92] },
-      { type: 'tree', count: 6, angleRange: [deg(-130), deg(-10)], spreadRange: [0.35, 0.85] },
-      { type: 'deadTree', count: 2, angleRange: [deg(-150), deg(-25)], spreadRange: [0.4, 0.85] },
-      { type: 'tree', count: 7, spreadRange: [0.2, 0.7] },
-      { type: 'appleTree', count: 3, spreadRange: [0.3, 0.6] },
-      { type: 'bush', count: 18, spreadRange: [0.2, 0.85] },
-      { type: 'tuft', count: 22, spreadRange: [0.18, 0.9] },
-      { type: 'rock', count: 16, spreadRange: [0.3, 0.95] },
-      { type: 'mushroom', count: 10, angleRange: [deg(-150), deg(-25)], spreadRange: [0.35, 0.85] },
-      { type: 'flower', count: 26, spreadRange: [0.2, 0.9] },
-      { type: 'stump', count: 5, angleRange: [deg(-150), deg(-25)], spreadRange: [0.35, 0.85] },
-    ],
+    accentColor: 0xe8b45c,
+    // Conservés pour les quelques appels polaires restants.
+    boundaryRadius: landRadius,
+    grassRadius: landRadius,
     landmarks: [
-      // Massif rocheux en terrasses au nord de l'île (remplace l'ancien
-      // affleurement peint à la main) — voir buildMountainLandmarks.
-      ...buildMountainLandmarks(),
-      // Ponton en bois vers l'est, tourné pour s'avancer sur l'eau.
-      {
-        type: 'dock', x: DOCK_X, y: DOCK_Y, scale: DOCK_LEN / 300,
-        rotation: DOCK_ANGLE + Math.PI / 2,
-      },
-      {
-        type: 'lamp',
-        x: DOCK_X + Math.cos(DOCK_ANGLE) * DOCK_LEN,
-        y: DOCK_Y + Math.sin(DOCK_ANGLE) * DOCK_LEN,
-        scale: 1,
-      },
+      { type: 'dock', x: DOCK_X, y: DOCK_Y, scale: DOCK_LEN / 300, rotation: Math.PI / 2 },
+      { type: 'lamp', x: DOCK_X + DOCK_LEN, y: DOCK_Y - 10, scale: 1 },
+      // Gros rocher posé sur le plateau nord, comme sur la référence.
+      { type: 'rock', x: -8, y: -496, scale: 1.6 },
     ],
   };
 
-  /**
-   * Contraint un point (x, y) à l'intérieur du tapis d'herbe de l'île
-   * (jamais sur la falaise ni dans l'eau). Remplace l'ancien
-   * clampToRect : la limite dépend de l'angle (côte irrégulière), pas
-   * d'un simple rectangle.
-   */
+  /** Ramène un point sur la terre ferme : si la case visée n'est pas
+   * marchable, on tente le glissement sur un seul axe (le joueur longe la
+   * côte au lieu de se bloquer net), sinon on garde la position d'avant. */
   function clampToIsland(x, y, margin = 0) {
-    const angle = Math.atan2(y, x);
-    const maxR = WORLD.grassRadius(angle) - margin;
-    const dist = Math.hypot(x, y);
-    if (maxR <= 0 || dist <= maxR) return { x, y };
-    const scale = maxR / dist;
-    return { x: x * scale, y: y * scale };
-  }
-
-  /**
-   * Résout un déplacement (prevX, prevY) -> (nextX, nextY) en tenant
-   * compte du contour de l'île (clampToIsland).
-   */
-  // Empreintes des blocs de relief, calculées une seule fois.
-  const _mountainFootprints = buildMountainFootprints();
-
-  /** Le point (x, y) est-il dans le pied d'un bloc de falaise ? */
-  function isInsideRelief(x, y, margin = 0) {
-    for (const f of _mountainFootprints) {
-      if (x > f.x0 - margin && x < f.x1 + margin && y > f.y0 - margin && y < f.y1 + margin) return true;
+    if (isWalkable(x, y) && isWalkable(x + margin, y) && isWalkable(x - margin, y)
+      && isWalkable(x, y + margin) && isWalkable(x, y - margin)) {
+      return { x, y };
     }
-    return false;
+    // Recherche du point marchable le plus proche sur une petite spirale.
+    for (let r = TERRAIN_CELL / 2; r <= TERRAIN_CELL * 4; r += TERRAIN_CELL / 2) {
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        const px = x + Math.cos(a) * r;
+        const py = y + Math.sin(a) * r;
+        if (isWalkable(px, py) && isWalkable(px + margin, py) && isWalkable(px, py + margin)) {
+          return { x: px, y: py };
+        }
+      }
+    }
+    return { x, y };
   }
+
+  function isInsideRelief() { return false; } // plus de murs pleins depuis la refonte
 
   function resolvePlayerMove(prevX, prevY, nextX, nextY, margin = 0) {
-    const p = clampToIsland(nextX, nextY, margin);
-    if (!isInsideRelief(p.x, p.y, margin)) return p;
-    // Glissement le long de l'obstacle : on tente d'abord le déplacement
-    // horizontal seul, puis le vertical seul, avant de tout annuler.
-    const slideX = clampToIsland(nextX, prevY, margin);
-    if (!isInsideRelief(slideX.x, slideX.y, margin)) return slideX;
-    const slideY = clampToIsland(prevX, nextY, margin);
-    if (!isInsideRelief(slideY.x, slideY.y, margin)) return slideY;
+    const ok = (px, py) => isWalkable(px, py)
+      && isWalkable(px + margin, py) && isWalkable(px - margin, py)
+      && isWalkable(px, py + margin) && isWalkable(px, py - margin);
+    if (ok(nextX, nextY)) return { x: nextX, y: nextY };
+    if (ok(nextX, prevY)) return { x: nextX, y: prevY };  // glissement horizontal
+    if (ok(prevX, nextY)) return { x: prevX, y: nextY };  // glissement vertical
     return { x: prevX, y: prevY };
   }
 
@@ -1142,21 +1078,33 @@ window.Game = window.Game || {};
   // Sol : eau tout autour + île (falaise + écume + herbe), peint une
   // seule fois sur un grand canvas, posé tel quel par WorldRenderer.
   // ------------------------------------------------------------------
+  /**
+   * Peint tout le sol de l'île à partir de la grille relevée (ISLAND).
+   * Une passe par couche, case par case :
+   *   1. eau profonde partout, hauts-fonds puis écume selon la distance
+   *      à la terre (WATER_DIST),
+   *   2. pan rocheux sous chaque case de terre dont le voisin sud est de
+   *      l'eau — c'est lui qui donne l'île "posée en hauteur",
+   *   3. les cases de terre : herbe / sable / chemin / étang,
+   *   4. le liseré sombre sur tout le reste du pourtour,
+   *   5. le plateau nord (cases '^') : herbe éclaircie + son propre pan,
+   *   6. les décals (rochers immergés, algues, reflets, galets).
+   */
   function buildGroundCanvas(world) {
-    const w = world.halfWidth * 2;
-    const h = world.halfHeight * 2;
+    const w = Math.round(world.halfWidth * 2);
+    const h = Math.round(world.halfHeight * 2);
     const cx = world.halfWidth;
     const cy = world.halfHeight;
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
+    const CELL = TERRAIN_CELL;
+    // Coin haut-gauche (canvas) de la case (col,row).
+    const px = (col) => cx - MAP_OX + col * CELL;
+    const py = (row) => cy - MAP_OY + row * CELL;
 
-    // Eau (fond) : mosaïque de tuiles d'eau profonde (voir
-    // getDeepWaterPatternCanvas) au lieu de l'ancien dégradé radial. Le
-    // dégradé sert encore de repli tant que les images ne sont pas
-    // chargées, et repasse par-dessus en translucide pour garder la
-    // sensation de profondeur au large.
+    // --- 1. l'eau ---------------------------------------------------
     const deepWaterCanvas = getDeepWaterPatternCanvas();
     const waterGrad = ctx.createRadialGradient(cx, cy, Math.min(w, h) * 0.18, cx, cy, Math.max(w, h) * 0.72);
     waterGrad.addColorStop(0, hex(world.waterColor));
@@ -1171,383 +1119,250 @@ window.Game = window.Game || {};
       ctx.restore();
     }
 
-    // ------------------------------------------------------------------
-    // Découpe du terrain en CASES (grille TERRAIN_CELL).
-    // ------------------------------------------------------------------
-    // Toutes les zones de sol (écume, falaise, herbe, sable, étang) sont
-    // désormais peintes case par case au lieu d'être des polygones lisses :
-    // leurs contours — et donc toutes les intersections entre textures —
-    // tombent sur la même grille à angles droits que la mosaïque d'herbe.
-    const steps = 160; // échantillonnage angulaire (strates de falaise)
-    const angleAt = (px, py) => Math.atan2(py - cy, px - cx);
-    const distAt = (px, py) => Math.hypot(px - cx, py - cy);
-    // "à l'intérieur du rayon r(angle) (+ marge)"
-    const insideRadius = (radiusFn, pad) => (px, py) =>
-      distAt(px, py) <= radiusFn(angleAt(px, py)) + (pad || 0);
-    // anneau d'une case d'épaisseur, collé au bord intérieur du rayon
-    const rimOfRadius = (radiusFn, thickness) => (px, py) => {
-      const r = radiusFn(angleAt(px, py));
-      const d = distAt(px, py);
-      return d <= r && d > r - (thickness || TERRAIN_CELL);
-    };
-
-    const foamPath = cellRegionPath(w, h, insideRadius(world.boundaryRadius, TERRAIN_CELL));
-    const cliffPath = cellRegionPath(w, h, insideRadius(world.boundaryRadius));
-    const cliffRimPath = cellRegionPath(w, h, rimOfRadius(world.boundaryRadius));
-    const grassPath = cellRegionPath(w, h, insideRadius(world.grassRadius));
-    const grassRimPath = cellRegionPath(w, h, rimOfRadius(world.grassRadius));
-
-    // ------------------------------------------------------------------
-    // Détails semés (galets, coquillages, rochers immergés, algues,
-    // reflets — voir DETAIL_SPRITE_DEFS). Posés à DECAL_SIZE px sur la
-    // demi-grille du terrain : ils restent alignés sur le damier, donc
-    // cohérents avec les bords en marches d'escalier.
-    // ------------------------------------------------------------------
-    const HALF_CELL = TERRAIN_CELL / 2;
-    function drawDecal(key, px, py) {
-      const img = _detailImages[key];
-      if (!img || !img.width) return;
-      const gx = Math.round((px - DECAL_SIZE / 2) / HALF_CELL) * HALF_CELL;
-      const gy = Math.round((py - DECAL_SIZE / 2) / HALF_CELL) * HALF_CELL;
-      ctx.drawImage(img, gx, gy, DECAL_SIZE, DECAL_SIZE);
-    }
-    /** Sème `count` décals pris au hasard dans `keys`, aux endroits
-     * acceptés par `accept(x, y)`. Tirage déterministe (seed du monde). */
-    function scatterDecals(keys, count, seed, accept, alpha) {
-      const rng = mathUtils.mulberry32(mathUtils.hashString(world.id) + seed);
-      ctx.save();
-      if (alpha) ctx.globalAlpha = alpha;
-      let placed = 0;
-      let guard = 0;
-      while (placed < count && guard++ < count * 60) {
-        const px = rng() * w;
-        const py = rng() * h;
-        if (!accept(px, py)) continue;
-        drawDecal(keys[Math.floor(rng() * keys.length)], px, py);
-        placed++;
-      }
-      ctx.restore();
-    }
-
-    // Eau peu profonde : bande de tuiles côtières (turquoise) sur
-    // quelques cases autour de l'île, découpée à la case → la limite
-    // large / haut-fond est franche, comme sur la fiche.
-    const SHALLOW_BAND = TERRAIN_CELL * 5;
     const shallowCanvas = getShallowWaterPatternCanvas();
-    const shallowPath = cellRegionPath(w, h, insideRadius(world.boundaryRadius, SHALLOW_BAND));
-    if (shallowCanvas) {
-      ctx.fillStyle = ctx.createPattern(shallowCanvas, 'repeat');
-      ctx.fill(shallowPath);
+    const shallowPattern = shallowCanvas ? ctx.createPattern(shallowCanvas, 'repeat') : null;
+    const SHALLOW_CELLS = 4; // largeur du haut-fond autour de l'île
+    if (shallowPattern) {
+      ctx.fillStyle = shallowPattern;
+      for (let row = 0; row < MAP_H; row++) {
+        for (let col = 0; col < MAP_W; col++) {
+          const d = waterDist(col, row);
+          if (d > 0 && d <= SHALLOW_CELLS) ctx.fillRect(px(col), py(row), CELL, CELL);
+        }
+      }
     }
-
-    // Écume : anneau blanc translucide d'une case, débordant sur l'eau.
+    // Écume : la première case d'eau au contact de la terre.
     ctx.fillStyle = 'rgba(255,255,255,0.42)';
-    ctx.fill(foamPath);
-
-    // Falaise (terre) : aplat de couleur + liseré sombre d'une case sur
-    // le pourtour (l'ancien stroke ne marche plus : le path est fait de
-    // rectangles indépendants, le contourner dessinerait la grille).
-    ctx.fillStyle = hex(world.cliffColor);
-    ctx.fill(cliffPath);
-    ctx.fillStyle = shade(world.cliffColor, -0.30);
-    ctx.fill(cliffRimPath);
-
-    // Petites strates sur la bande de falaise (texture "terrasses").
-    ctx.save();
-    ctx.clip(cliffPath);
-    ctx.strokeStyle = shade(world.cliffColor, -0.22);
-    ctx.lineWidth = 3;
-    for (let i = 0; i <= steps; i += 3) {
-      const angle = (i / steps) * Math.PI * 2;
-      const rc = world.boundaryRadius(angle);
-      const rg = world.grassRadius(angle);
-      const x1 = cx + Math.cos(angle) * rc, y1 = cy + Math.sin(angle) * rc;
-      const x2 = cx + Math.cos(angle) * rg, y2 = cy + Math.sin(angle) * rg;
-      ctx.beginPath();
-      ctx.moveTo(mix(x1, x2, 0.3), mix(y1, y2, 0.3));
-      ctx.lineTo(mix(x1, x2, 0.55), mix(y1, y2, 0.55));
-      ctx.stroke();
+    for (let row = 0; row < MAP_H; row++) {
+      for (let col = 0; col < MAP_W; col++) {
+        if (waterDist(col, row) === 1) ctx.fillRect(px(col), py(row), CELL, CELL);
+      }
     }
-    ctx.restore();
 
-    // Herbe (sommet de l'île) : mosaïque de tuiles (voir
-    // getGrassPatternCanvas) en CanvasPattern — calée sur l'origine du
-    // canvas, donc sur la même grille que les cases — avec par-dessus un
-    // léger dégradé radial pour garder la profondeur d'avant. Tant que
-    // les textures ne sont pas chargées, on retombe sur l'ancien dégradé.
+    // --- 2. pan rocheux de la côte ----------------------------------
+    // Dessiné AVANT les cases de terre pour que la frange d'herbe du
+    // haut du pan se glisse sous elles.
+    const faceImg = _detailImages.cliffFace;
+    const facePattern = faceImg && faceImg.width ? ctx.createPattern(faceImg, 'repeat') : null;
+    function drawWallUnder(col, row, wallH) {
+      const x = px(col);
+      const top = py(row) + CELL - FACE_OVERHANG;
+      if (facePattern) {
+        ctx.save();
+        ctx.translate(x, top);
+        ctx.scale(1, (wallH + FACE_OVERHANG) / 90); // la tuile fait 90 px de haut
+        ctx.fillStyle = facePattern;
+        ctx.fillRect(0, 0, CELL, 90);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = hex(world.cliffColor);
+        ctx.fillRect(x, top, CELL, wallH + FACE_OVERHANG);
+      }
+      ctx.fillStyle = 'rgba(0,0,0,0.20)';
+      ctx.fillRect(x, top + wallH + FACE_OVERHANG - 5, CELL, 5);
+    }
+    for (let row = 0; row < MAP_H; row++) {
+      for (let col = 0; col < MAP_W; col++) {
+        if (!isLandChar(cellChar(col, row))) continue;
+        if (!isLandChar(cellChar(col, row + 1))) drawWallUnder(col, row, CLIFF_WALL_H);
+      }
+    }
+
+    // --- 3. les cases de terre --------------------------------------
     const grassPatternCanvas = getGrassPatternCanvas();
     const grassGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(world.halfWidth, world.halfHeight));
     grassGrad.addColorStop(0, hex(world.groundColor));
     grassGrad.addColorStop(1, hex(world.groundColor2));
-    ctx.fillStyle = grassPatternCanvas ? ctx.createPattern(grassPatternCanvas, 'repeat') : grassGrad;
-    ctx.fill(grassPath);
-    // Liseré d'ombre d'une case là où l'herbe surplombe la falaise.
-    ctx.save();
-    ctx.globalAlpha = 0.28;
-    ctx.fillStyle = shade(world.groundColor2, -0.45);
-    ctx.fill(grassRimPath);
-    ctx.restore();
-    if (grassPatternCanvas) {
-      ctx.save();
-      ctx.clip(grassPath);
-      const shadeGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(world.halfWidth, world.halfHeight));
-      shadeGrad.addColorStop(0, 'rgba(255,255,255,0.10)');
-      shadeGrad.addColorStop(0.6, 'rgba(0,0,0,0)');
-      shadeGrad.addColorStop(1, 'rgba(0,0,0,0.30)');
-      ctx.fillStyle = shadeGrad;
-      ctx.fillRect(0, 0, w, h);
-      ctx.restore();
+    const grassPattern = grassPatternCanvas ? ctx.createPattern(grassPatternCanvas, 'repeat') : grassGrad;
+    const sandCanvas = getSandPatternCanvas();
+    const sandGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(world.halfWidth, world.halfHeight));
+    sandGrad.addColorStop(0, hex(world.sandColor));
+    sandGrad.addColorStop(1, hex(world.sandColor2));
+    const sandPattern = sandCanvas ? ctx.createPattern(sandCanvas, 'repeat') : sandGrad;
+    const wetCanvas = getWetSandPatternCanvas();
+    const wetPattern = wetCanvas ? ctx.createPattern(wetCanvas, 'repeat') : sandGrad;
+
+    const fillFor = (ch, col, row) => {
+      if (ch === 's') {
+        // Sable mouillé sur la rangée qui touche l'eau.
+        const wet = !isLandChar(cellChar(col + 1, row)) || !isLandChar(cellChar(col - 1, row))
+          || !isLandChar(cellChar(col, row + 1)) || !isLandChar(cellChar(col, row - 1));
+        return wet ? wetPattern : sandPattern;
+      }
+      if (ch === 'd') return wetPattern; // chemin de terre battue
+      if (ch === 'o') return shallowPattern || waterGrad; // étang
+      return grassPattern;
+    };
+    for (let row = 0; row < MAP_H; row++) {
+      for (let col = 0; col < MAP_W; col++) {
+        const ch = cellChar(col, row);
+        if (!isGroundChar(ch)) continue;
+        ctx.fillStyle = fillFor(ch, col, row);
+        ctx.fillRect(px(col), py(row), CELL, CELL);
+      }
+    }
+    // Rive de sable mouillé autour de l'étang.
+    ctx.fillStyle = wetPattern;
+    for (let row = 0; row < MAP_H; row++) {
+      for (let col = 0; col < MAP_W; col++) {
+        if (cellChar(col, row) !== '.') continue;
+        const nearPond = cellChar(col + 1, row) === 'o' || cellChar(col - 1, row) === 'o'
+          || cellChar(col, row + 1) === 'o' || cellChar(col, row - 1) === 'o';
+        if (nearPond) ctx.fillRect(px(col), py(row), CELL, CELL);
+      }
     }
 
-    // Plages de sable : bandes qui longent la côte sur certains secteurs
-    // angulaires (voir world.sandZones), profondeur maximale au centre du
-    // secteur et retombant à 0 sur ses bords — mais découpées à la case,
-    // donc raccordées à l'herbe en marches d'escalier.
-    if (world.sandZones && world.sandZones.length) {
-      const sandDepthAt = (angle) => {
-        let depth = 0;
-        for (const zone of world.sandZones) {
-          let diff = angle - zone.angle;
-          diff = Math.atan2(Math.sin(diff), Math.cos(diff)); // normalise dans [-π, π]
-          const half = zone.width / 2;
-          if (Math.abs(diff) < half) {
-            depth = Math.max(depth, zone.depth * Math.cos((diff / half) * (Math.PI / 2)));
-          }
+    // Ombrage général : léger halo clair au centre, coins assombris.
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-atop';
+    const shadeGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(w, h) * 0.55);
+    shadeGrad.addColorStop(0, 'rgba(255,255,255,0.06)');
+    shadeGrad.addColorStop(0.65, 'rgba(0,0,0,0)');
+    shadeGrad.addColorStop(1, 'rgba(0,0,0,0.20)');
+    ctx.fillStyle = shadeGrad;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+
+    // --- 4. tranche de terre sur le reste du pourtour ----------------
+    // Côté nord/est/ouest on ne voit pas le pan rocheux (il n'est visible
+    // que de face, au sud) : on peint à la place une tranche de terre de
+    // 8 px, bordée d'un trait sombre — c'est ce liseré brun continu qui
+    // fait lire l'île comme un plateau posé sur l'eau, comme sur la
+    // référence.
+    const RIM = 8;
+    const rimFill = shade(world.cliffColor, -0.05);
+    const rimEdge = shade(world.cliffColor, -0.55);
+    function drawRim(x, y, bw, bh, side) {
+      ctx.fillStyle = rimFill;
+      ctx.fillRect(x, y, bw, bh);
+      ctx.fillStyle = rimEdge;
+      if (side === 'n') ctx.fillRect(x, y, bw, 3);
+      if (side === 'w') ctx.fillRect(x, y, 3, bh);
+      if (side === 'e') ctx.fillRect(x + bw - 3, y, 3, bh);
+    }
+    for (let row = 0; row < MAP_H; row++) {
+      for (let col = 0; col < MAP_W; col++) {
+        if (!isLandChar(cellChar(col, row))) continue;
+        const x = px(col);
+        const y = py(row);
+        if (!isLandChar(cellChar(col, row - 1))) drawRim(x, y, CELL, RIM, 'n');
+        if (!isLandChar(cellChar(col - 1, row))) drawRim(x, y, RIM, CELL, 'w');
+        if (!isLandChar(cellChar(col + 1, row))) drawRim(x + CELL - RIM, y, RIM, CELL, 'e');
+      }
+    }
+
+    // --- 5. plateau nord (cases '^') --------------------------------
+    // Même principe que la côte, un cran plus haut : surface éclaircie,
+    // pan rocheux sous son bord sud, liseré tout autour.
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    for (let row = 0; row < MAP_H; row++) {
+      for (let col = 0; col < MAP_W; col++) {
+        if (cellChar(col, row) === '^') ctx.fillRect(px(col), py(row), CELL, CELL);
+      }
+    }
+    for (let row = 0; row < MAP_H; row++) {
+      for (let col = 0; col < MAP_W; col++) {
+        if (cellChar(col, row) !== '^') continue;
+        if (cellChar(col, row + 1) !== '^') drawWallUnder(col, row, PLATEAU_WALL_H);
+      }
+    }
+    for (let row = 0; row < MAP_H; row++) {
+      for (let col = 0; col < MAP_W; col++) {
+        if (cellChar(col, row) !== '^') continue;
+        const x = px(col);
+        const y = py(row);
+        if (cellChar(col, row - 1) !== '^') drawRim(x, y, CELL, RIM, 'n');
+        if (cellChar(col - 1, row) !== '^') drawRim(x, y, RIM, CELL, 'w');
+        if (cellChar(col + 1, row) !== '^') drawRim(x + CELL - RIM, y, RIM, CELL, 'e');
+      }
+    }
+
+    // --- 6. décals ---------------------------------------------------
+    const HALF_CELL = CELL / 2;
+    function drawDecal(key, wx, wy) {
+      const img = _detailImages[key];
+      if (!img || !img.width) return;
+      const gx = Math.round((cx + wx - DECAL_SIZE / 2) / HALF_CELL) * HALF_CELL;
+      const gy = Math.round((cy + wy - DECAL_SIZE / 2) / HALF_CELL) * HALF_CELL;
+      ctx.drawImage(img, gx, gy, DECAL_SIZE, DECAL_SIZE);
+    }
+    function scatterCells(keys, seed, accept, chance, alpha) {
+      const rng = mathUtils.mulberry32(mathUtils.hashString(world.id) + seed);
+      ctx.save();
+      if (alpha) ctx.globalAlpha = alpha;
+      for (let row = 0; row < MAP_H; row++) {
+        for (let col = 0; col < MAP_W; col++) {
+          if (!accept(col, row)) continue;
+          if (rng() > chance) continue;
+          const wx = (col + 0.5) * CELL - MAP_OX;
+          const wy = (row + 0.5) * CELL - MAP_OY;
+          drawDecal(keys[Math.floor(rng() * keys.length)], wx, wy);
         }
-        return depth;
-      };
-      const sandPath = cellRegionPath(w, h, (px, py) => {
-        const angle = angleAt(px, py);
-        const d = distAt(px, py);
-        const rGrass = world.grassRadius(angle);
-        const depth = sandDepthAt(angle);
-        return depth > 0 && d <= rGrass && d > rGrass - depth;
-      });
-      ctx.save();
-      const sandCanvas = getSandPatternCanvas();
-      const wetSandCanvas = getWetSandPatternCanvas();
-      const sandGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(world.halfWidth, world.halfHeight));
-      sandGrad.addColorStop(0, hex(world.sandColor));
-      sandGrad.addColorStop(1, hex(world.sandColor2));
-      ctx.fillStyle = sandCanvas ? ctx.createPattern(sandCanvas, 'repeat') : sandGrad;
-      ctx.fill(sandPath);
-      // Sable humide : les 2 cases qui touchent l'eau (ton foncé de la
-      // fiche) — transition franche sable sec / sable mouillé.
-      if (wetSandCanvas) {
-        const wetPath = cellRegionPath(w, h, (px, py) => {
-          const angle = angleAt(px, py);
-          const d = distAt(px, py);
-          const rGrass = world.grassRadius(angle);
-          return sandDepthAt(angle) > 0 && d <= rGrass && d > rGrass - TERRAIN_CELL * 2;
-        });
-        ctx.fillStyle = ctx.createPattern(wetSandCanvas, 'repeat');
-        ctx.fill(wetPath);
-      }
-      // Petits galets épars sur le sable, eux aussi calés sur la grille.
-      const srng = mathUtils.mulberry32(mathUtils.hashString(world.id) + 11);
-      ctx.clip(sandPath);
-      const pebble = TERRAIN_CELL / 4;
-      for (let i = 0; i < 220; i++) {
-        const angle = srng() * Math.PI * 2;
-        const depth = sandDepthAt(angle);
-        if (depth < 10) continue;
-        const rGrass = world.grassRadius(angle);
-        const rr = rGrass - srng() * depth;
-        const px = Math.round((cx + Math.cos(angle) * rr) / pebble) * pebble;
-        const py = Math.round((cy + Math.sin(angle) * rr) / pebble) * pebble;
-        ctx.globalAlpha = 0.12 + srng() * 0.14;
-        ctx.fillStyle = srng() > 0.5 ? '#ffffff' : '#8a6339';
-        ctx.fillRect(px, py, pebble, pebble);
-      }
-      ctx.globalAlpha = 1;
-      ctx.restore();
-
-      // Galets, coquillages et touffes d'herbe sur la plage.
-      const onSand = (px, py) => {
-        const angle = angleAt(px, py);
-        const d = distAt(px, py);
-        const rGrass = world.grassRadius(angle);
-        const depth = sandDepthAt(angle);
-        return depth > 30 && d < rGrass - HALF_CELL && d > rGrass - depth + HALF_CELL;
-      };
-      scatterDecals(['sandPebbles1', 'sandPebbles2', 'sandShells'], 14, 31, onSand);
-      scatterDecals(['sandTufts'], 8, 33, onSand);
-    }
-
-    // Variations d'usure sur l'herbe : anciennes taches rondes remplacées
-    // par des cases éclaircies/assombries, pour ne pas casser la grille.
-    ctx.save();
-    ctx.clip(grassPath);
-    const rng = mathUtils.mulberry32(mathUtils.hashString(world.id));
-    const spots = Math.round((w * h) / 9000);
-    for (let i = 0; i < spots; i++) {
-      const px = Math.floor((rng() * w) / TERRAIN_CELL) * TERRAIN_CELL;
-      const py = Math.floor((rng() * h) / TERRAIN_CELL) * TERRAIN_CELL;
-      ctx.globalAlpha = 0.05 + rng() * 0.05;
-      ctx.fillStyle = rng() > 0.5 ? '#ffffff' : '#000000';
-      ctx.fillRect(px, py, TERRAIN_CELL, TERRAIN_CELL);
-    }
-    ctx.globalAlpha = 1;
-    ctx.restore();
-
-    // Petit étang niché dans l'herbe (voir world.pond) : rive de sable
-    // clair puis eau, découpés à la case comme le reste.
-    if (world.pond) {
-      const pond = world.pond;
-      const ox = cx + pond.x;
-      const oy = cy + pond.y;
-      const insideEllipse = (k) => (px, py) => {
-        const dx = (px - ox) / (pond.rx * k);
-        const dy = (py - oy) / (pond.ry * k);
-        return dx * dx + dy * dy <= 1;
-      };
-      const shorePath = cellRegionPath(w, h, insideEllipse(1.14));
-      const waterPath = cellRegionPath(w, h, insideEllipse(1));
-      ctx.save();
-      ctx.clip(grassPath);
-      const pondShoreCanvas = getWetSandPatternCanvas();
-      ctx.fillStyle = pondShoreCanvas ? ctx.createPattern(pondShoreCanvas, 'repeat') : hex(world.sandColor);
-      ctx.fill(shorePath);
-      const pondWaterCanvas = getShallowWaterPatternCanvas();
-      const pondGrad = ctx.createRadialGradient(ox, oy, 0, ox, oy, Math.max(pond.rx, pond.ry));
-      pondGrad.addColorStop(0, hex(world.waterColor));
-      pondGrad.addColorStop(1, hex(world.waterColor2));
-      ctx.fillStyle = pondWaterCanvas ? ctx.createPattern(pondWaterCanvas, 'repeat') : pondGrad;
-      ctx.fill(waterPath);
-      // Nénuphars et algues de l'étang (vrais sprites de la fiche).
-      const prng = mathUtils.mulberry32(mathUtils.hashString(world.id) + 23);
-      const lilyKeys = ['waterLily1', 'waterLily2', 'waterAlgae1', 'waterAlgae2'];
-      for (let i = 0; i < 5; i++) {
-        const a = prng() * Math.PI * 2;
-        const rr = 0.15 + prng() * 0.5;
-        drawDecal(
-          lilyKeys[Math.floor(prng() * lilyKeys.length)],
-          ox + Math.cos(a) * pond.rx * rr,
-          oy + Math.sin(a) * pond.ry * rr
-        );
       }
       ctx.restore();
     }
-
-    // ------------------------------------------------------------------
-    // Détails de l'eau : rochers immergés et algues sur les hauts-fonds,
-    // éclats d'écume au ras de la côte, reflets épars au large.
-    // ------------------------------------------------------------------
-    const onShallowWater = (px, py) => {
-      const d = distAt(px, py);
-      const r = world.boundaryRadius(angleAt(px, py));
-      return d > r + TERRAIN_CELL * 1.5 && d < r + SHALLOW_BAND - HALF_CELL;
+    const isShallow = (col, row) => {
+      const d = waterDist(col, row);
+      return d >= 2 && d <= SHALLOW_CELLS;
     };
-    const onDeepWater = (px, py) => {
-      const d = distAt(px, py);
-      const r = world.boundaryRadius(angleAt(px, py));
-      return d > r + SHALLOW_BAND + TERRAIN_CELL;
-    };
-    scatterDecals(['waterRock1', 'waterRock2', 'waterRock3'], 16, 41, onShallowWater);
-    scatterDecals(['waterAlgae1', 'waterAlgae2'], 12, 43, onShallowWater);
-    scatterDecals(['waterFoamBits'], 18, 45, onShallowWater, 0.75);
-    scatterDecals(['waterSparkle1', 'waterSparkle2', 'waterSparkle3'], 40, 47, onDeepWater, 0.55);
+    const isDeep = (col, row) => waterDist(col, row) > SHALLOW_CELLS + 1;
+    const isSand = (col, row) => cellChar(col, row) === 's';
+    const isPondCell = (col, row) => cellChar(col, row) === 'o';
+    scatterCells(['waterRock1', 'waterRock2', 'waterRock3'], 41, isShallow, 0.07);
+    scatterCells(['waterAlgae1', 'waterAlgae2'], 43, isShallow, 0.05);
+    scatterCells(['waterFoamBits'], 45, isShallow, 0.08, 0.75);
+    scatterCells(['waterSparkle1', 'waterSparkle2', 'waterSparkle3'], 47, isDeep, 0.05, 0.55);
+    scatterCells(['sandPebbles1', 'sandPebbles2', 'sandShells'], 31, isSand, 0.18);
+    scatterCells(['waterLily1', 'waterLily2', 'waterAlgae1'], 51, isPondCell, 0.22);
 
     return canvas;
   }
 
-  // Zones interdites au décor aléatoire : autour du point d'arrivée, le
-  // long du chemin central, et autour de chaque élément fixe (pour ne
-  // pas planter un arbre en plein milieu de la cabane).
-  function isBlocked(x, y, landmarkZones) {
-    const distToSpawn = Math.hypot(x - WORLD.spawn.x, y - WORLD.spawn.y);
-    if (distToSpawn < 150) return true; // dégagement autour du débarcadère
-    if (WORLD.pond) {
-      const p = WORLD.pond;
-      const dx = (x - (p.x)) / (p.rx * 1.5);
-      const dy = (y - (p.y)) / (p.ry * 1.5);
-      if (dx * dx + dy * dy < 1) return true; // pas de décor dans/sur la rive de l'étang
-    }
-    for (const zone of landmarkZones) {
-      if (Math.hypot(x - zone.x, y - zone.y) < zone.r) return true;
-    }
-    return false;
-  }
-
-  function buildLandmarkZones() {
-    return WORLD.landmarks.map((l) => {
-      // Blocs de relief : leur "taille" est celle du sprite, pas une
-      // entrée de DECOR_SIZE — sans ça le rayon d'exclusion serait
-      // ridiculement petit et des arbres pousseraient dans la falaise.
-      if (SCALED_SPRITE_TYPES.has(l.type)) {
-        const def = TREE_SPRITE_DEFS[TREE_TYPE_POOLS[l.type][0]];
-        const r = Math.max(def.w, def.h) * (l.scale || 1) * 0.66;
-        return { x: l.x, y: l.y, r };
-      }
-      const size = DECOR_SIZE[l.type] || [60, 60];
-      const r = Math.max(size[0], size[1]) * (l.scale || 1) * 0.62;
-      return { x: l.x, y: l.y, r };
-    });
+  /** Sprite dessiné à sa taille native × scale (arbres relevés sur la
+   * référence : la planche fournit déjà les bonnes proportions entre
+   * feuillus, conifères et grands arbres, il suffit de les réduire). */
+  const TREE_WORLD_SCALE = 0.74;
+  function makeTreeFromKey(key, x, y, scale) {
+    const def = TREE_SPRITE_DEFS[key];
+    if (!def) return null;
+    const s = TREE_WORLD_SCALE * (scale || 1);
+    return {
+      type: 'tree', x, y,
+      canvas: getTreeSpriteImage(key),
+      worldW: def.w * s,
+      worldH: def.h * s,
+      rotation: 0,
+    };
   }
 
   /**
    * Construit le décor complet du monde : sol (canvas déjà peint) et
-   * liste de props (arbres, buissons, cabane, ponton...) placés de façon
-   * déterministe (même seed => même disposition à chaque chargement).
+   * liste de props. Les arbres, buissons, fleurs et rochers ne sont plus
+   * tirés au hasard : ils viennent du relevé de l'île de référence
+   * (ISLAND.props), donc la répartition — forêt dense au nord, clairières
+   * au sud, bosquets autour de l'étang — est celle de l'image.
    */
   function buildWorld() {
     const ground = buildGroundCanvas(WORLD);
     const rng = mathUtils.mulberry32(mathUtils.hashString(WORLD.id) + 1);
-    const landmarkZones = buildLandmarkZones();
     const props = [];
-    // Positions déjà occupées par un élément "haut" (arbre/buisson),
-    // consultées par tooCloseToPlacedTall pour espacer le tirage
-    // aléatoire (voir minSpacing dans la boucle ci-dessous).
-    const _placedTall = [];
-    function tooCloseToPlacedTall(x, y, minDist) {
-      for (const pt of _placedTall) {
-        if (Math.hypot(x - pt.x, y - pt.y) < minDist) return true;
-      }
-      return false;
-    }
 
-    WORLD.decor.forEach(({ type, count, angleRange, spreadRange }) => {
-      const size = DECOR_SIZE[type] || [40, 50];
-      const [sMin, sMax] = spreadRange || [0.32, 0.94];
-      // Écart minimal entre deux éléments "hauts" (arbres/buissons) pour
-      // éviter que les cimes ne s'entassent les unes sur les autres —
-      // sans ça, le tirage purement aléatoire produit des paquets
-      // d'arbres agglutinés par endroits (voir _placedTall, partagé
-      // entre toutes les entrées de WORLD.decor).
-      // (uniquement les éléments "hauts" : depuis que fleurs, touffes et
-      // rochers sont eux aussi des sprites, les inclure dans _placedTall
-      // repousserait les arbres pour un simple bouquet de fleurs.)
-      const minSpacing = TALL_DECOR_TYPES.has(type) ? size[0] * 1.05 + 20 : 0;
-      for (let i = 0; i < count; i++) {
-        let x = 0, y = 0, tries = 0, placed = false;
-        while (tries < 60) {
-          const angle = angleRange
-            ? angleRange[0] + rng() * (angleRange[1] - angleRange[0])
-            : rng() * Math.PI * 2;
-          const spread = sMin + rng() * (sMax - sMin);
-          const maxR = Math.max(0, WORLD.grassRadius(angle) - 34);
-          x = Math.cos(angle) * maxR * spread;
-          y = Math.sin(angle) * maxR * spread;
-          tries++;
-          if (isBlocked(x, y, landmarkZones)) continue;
-          if (minSpacing && tooCloseToPlacedTall(x, y, minSpacing)) continue;
-          placed = true;
-          break;
-        }
-        if (!placed) continue;
-        if (minSpacing) _placedTall.push({ x, y });
-        // Types "arbre" -> sprite fourni (voir TREE_TYPE_POOLS), reste ->
-        // icône procédurale peinte sur canvas (comportement inchangé).
-        if (TREE_TYPE_POOLS[type]) {
-          const worldH = size[1] * (0.85 + rng() * 0.3);
-          props.push(makeTreeProp(type, x, y, rng, worldH));
-          continue;
-        }
-        const canvas = buildDecorCanvas(type, rng, WORLD.accentColor);
-        if (!canvas) continue;
-        const scale = 0.85 + rng() * 0.3;
-        props.push({ type, x, y, canvas, worldW: size[0] * scale, worldH: size[1] * scale });
+    (ISLAND.props || []).forEach((p) => {
+      if (p.t === 'tree') {
+        const prop = makeTreeFromKey(p.s, p.x, p.y, 0.9 + rng() * 0.22);
+        if (prop) props.push(prop);
+        return;
       }
+      if (TREE_TYPE_POOLS[p.t]) {
+        const size = DECOR_SIZE[p.t] || [40, 50];
+        props.push(makeTreeProp(p.t, p.x, p.y, rng, size[1] * (0.85 + rng() * 0.3)));
+        return;
+      }
+      const size = DECOR_SIZE[p.t] || [40, 50];
+      const canvas = buildDecorCanvas(p.t, rng, WORLD.accentColor);
+      if (!canvas) return;
+      const scale = 0.85 + rng() * 0.3;
+      props.push({ type: p.t, x: p.x, y: p.y, canvas, worldW: size[0] * scale, worldH: size[1] * scale });
     });
 
     WORLD.landmarks.forEach((l) => {
