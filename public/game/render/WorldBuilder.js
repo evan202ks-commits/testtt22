@@ -336,14 +336,12 @@ window.Game = window.Game || {};
       return n * 0.78 + m * 0.22;
     }
 
-    // Fond = premier ton, puis chaque ton suivant est peint PAR-DESSUS en
-    // opacité variable : plus le bruit dépasse le seuil du ton, plus il
-    // couvre. Les tons se fondent donc les uns dans les autres au lieu de
-    // se découper en cases — c'est ce qui uniformise le sol.
-    // BLEND_STEP = finesse du dégradé (petit = doux mais plus long à
-    // construire), MAX_ALPHA < 1 pour qu'un ton ne remplace jamais
-    // totalement le fond : les variations restent des nuances.
-    const BLEND_STEP = 6;
+    // Fond = premier ton ; chaque ton suivant est peint par-dessus à
+    // travers un MASQUE TRAMÉ (dithering ordonné de Bayer) : au cœur
+    // d'une tache le ton couvre à 100 %, et sur ses bords il se dissout
+    // en un damier de plus en plus lâche. Aucun flou, aucun mélange de
+    // couleurs — chaque pixel reste un pixel de l'une des deux textures,
+    // comme dans les dégradés de la 16 bits.
     const smoothstep = (edge0, edge1, x) => {
       const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
       return t * t * (3 - 2 * t);
@@ -359,19 +357,11 @@ window.Game = window.Game || {};
 
     for (let i = 1; i < layers.length; i++) {
       const layer = layers[i];
-      const from = layers[i - 1].upTo;          // seuil d'apparition
-      const to = Math.min(1, layer.upTo + 0.06); // couverture maximale
-      const maxAlpha = layer.maxAlpha != null ? layer.maxAlpha : 0.85;
-      gctx.fillStyle = patterns[layer.key];
-      for (let y = 0; y < H; y += BLEND_STEP) {
-        for (let x = 0; x < W; x += BLEND_STEP) {
-          const a = smoothstep(from, to, noiseAt(x + BLEND_STEP / 2, y + BLEND_STEP / 2)) * maxAlpha;
-          if (a < 0.02) continue;
-          gctx.globalAlpha = a;
-          gctx.fillRect(x, y, BLEND_STEP, BLEND_STEP);
-        }
-      }
-      gctx.globalAlpha = 1;
+      const from = layers[i - 1].upTo;           // seuil d'apparition du ton
+      const to = Math.min(1, layer.upTo + 0.06); // couverture pleine
+      const maxCover = layer.maxCover != null ? layer.maxCover : 1;
+      drawDitheredLayer(gctx, W, H, getNormalizedTile(layer.key),
+        (x, y) => smoothstep(from, to, noiseAt(x, y)) * maxCover);
     }
 
     _mosaicCache[id] = canvas;
@@ -379,13 +369,29 @@ window.Game = window.Game || {};
   }
 
   // ------------------------------------------------------------------
-  // Fondu entre deux MATIÈRES (herbe/sable, sable sec/mouillé, large/
-  // haut-fond…). Le principe : on peint la matière sur un calque, on lui
-  // applique un masque flouté (les cases concernées, adoucies au flou),
-  // puis on colle le calque. La frontière devient un dégradé au lieu
-  // d'un escalier de cases — sans toucher au trait net de la côte, qui
-  // lui reste franc puisque son masque n'est pas flouté.
+  // Transitions entre MATIÈRES — par tramage, sans flou.
   // ------------------------------------------------------------------
+  // Matrice de Bayer 8×8 : 64 seuils répartis régulièrement dans [0,1[.
+  // Comparer une couverture à ce seuil, en fonction de la position du
+  // pixel, donne un damier dont la densité suit la couverture — la
+  // technique classique du dégradé en pixel art. Les couleurs ne sont
+  // jamais moyennées : on garde des pixels nets et la palette d'origine.
+  const BAYER8 = (function buildBayer8() {
+    const base = [
+      0, 32, 8, 40, 2, 34, 10, 42,
+      48, 16, 56, 24, 50, 18, 58, 26,
+      12, 44, 4, 36, 14, 46, 6, 38,
+      60, 28, 52, 20, 62, 30, 54, 22,
+      3, 35, 11, 43, 1, 33, 9, 41,
+      51, 19, 59, 27, 49, 17, 57, 25,
+      15, 47, 7, 39, 13, 45, 5, 37,
+      63, 31, 55, 23, 61, 29, 53, 21,
+    ];
+    return base.map((v) => (v + 0.5) / 64);
+  })();
+
+  const DITHER_BLOCK = 2; // côté d'un point de trame, en pixels
+
   let _scratchA = null;
   let _scratchB = null;
   function getScratch(which, w, h) {
@@ -401,30 +407,50 @@ window.Game = window.Game || {};
     return c;
   }
 
+  /** Masque binaire tramé : opaque là où `coverage(x, y)` (0→1) l'emporte
+   * sur le seuil de Bayer du bloc courant. */
+  function buildDitherMask(w, h, coverage) {
+    const canvas = getScratch('a', w, h);
+    const ctx2 = canvas.getContext('2d');
+    const img = ctx2.createImageData(w, h);
+    const data = img.data;
+    const B = DITHER_BLOCK;
+    for (let y = 0; y < h; y += B) {
+      const by = ((y / B) | 0) & 7;
+      for (let x = 0; x < w; x += B) {
+        const cov = coverage(x, y);
+        if (cov <= 0) continue;
+        if (cov < 1 && cov <= BAYER8[by * 8 + (((x / B) | 0) & 7)]) continue;
+        for (let dy = 0; dy < B && y + dy < h; dy++) {
+          let idx = ((y + dy) * w + x) * 4;
+          for (let dx = 0; dx < B && x + dx < w; dx++) {
+            data[idx] = 255; data[idx + 1] = 255; data[idx + 2] = 255; data[idx + 3] = 255;
+            idx += 4;
+          }
+        }
+      }
+    }
+    ctx2.putImageData(img, 0, 0);
+    return canvas;
+  }
+
   /**
-   * @param ctx        contexte du canvas de sol
-   * @param source     canvas de texture à répéter
-   * @param paintMask  fonction(ctx2d) qui peint en blanc les cases visées
-   * @param blurPx     rayon du fondu (0 = frontière nette)
-   * @param clipMask   masque net optionnel (ex. la terre) pour empêcher
-   *                   le flou de baver hors de l'île
+   * Peint `source` (texture répétée) à travers un masque tramé.
+   * @param coverage fonction(x, y) -> 0..1 : 1 = matière pleine,
+   *                 0 = absente, entre les deux = zone de transition.
+   * @param clipMask masque net optionnel (l'île) : empêche la matière de
+   *                 déborder, sans adoucir quoi que ce soit.
    */
-  function drawSoftLayer(ctx, w, h, source, paintMask, blurPx, clipMask) {
+  function drawDitheredLayer(ctx, w, h, source, coverage, clipMask) {
     if (!source) return;
-    const mask = getScratch('a', w, h);
-    const mctx = mask.getContext('2d');
-    mctx.save();
-    if (blurPx && typeof mctx.filter === 'string') mctx.filter = `blur(${blurPx}px)`;
-    mctx.fillStyle = '#ffffff';
-    paintMask(mctx);
-    mctx.restore();
+    const mask = buildDitherMask(w, h, coverage);
     if (clipMask) {
+      const mctx = mask.getContext('2d');
       mctx.save();
       mctx.globalCompositeOperation = 'destination-in';
       mctx.drawImage(clipMask, 0, 0);
       mctx.restore();
     }
-
     const layer = getScratch('b', w, h);
     const lctx = layer.getContext('2d');
     lctx.fillStyle = lctx.createPattern(source, 'repeat');
@@ -432,18 +458,17 @@ window.Game = window.Game || {};
     lctx.globalCompositeOperation = 'destination-in';
     lctx.drawImage(mask, 0, 0);
     lctx.globalCompositeOperation = 'source-over';
-
     ctx.drawImage(layer, 0, 0);
   }
 
   // Herbe : un ton de fond (moyenne) et trois nuances qui s'y fondent
-  // sans jamais le couvrir complètement (maxAlpha) — l'herbe reste lue
+  // avec des bords tramés (maxCover) — l'herbe reste lue
   // comme UNE matière, avec des variations, au lieu d'un patchwork.
   const getGrassPatternCanvas = () => getMosaicCanvas('grass', [
     { key: 'grassMoyenne', upTo: 0.42 },
-    { key: 'grassSombre', upTo: 0.58, maxAlpha: 0.55 },
-    { key: 'grassClaire', upTo: 0.78, maxAlpha: 0.6 },
-    { key: 'grassDense', upTo: 1, maxAlpha: 0.85 },
+    { key: 'grassSombre', upTo: 0.58, maxCover: 0.9 },
+    { key: 'grassClaire', upTo: 0.78, maxCover: 0.9 },
+    { key: 'grassDense', upTo: 1, maxCover: 1 },
   ], 20260805);
 
   // Au large on ne mélange que les deux bleus sombres : la 3e tuile
@@ -451,12 +476,12 @@ window.Game = window.Game || {};
   // éclats de lumière viennent des décals "reflets" à la place.
   const getDeepWaterPatternCanvas = () => getMosaicCanvas('waterDeep', [
     { key: 'waterDeep2', upTo: 0.5 },
-    { key: 'waterDeep1', upTo: 1, maxAlpha: 0.7 },
+    { key: 'waterDeep1', upTo: 1, maxCover: 0.85 },
   ], 20260810, 32);
 
   const getShallowWaterPatternCanvas = () => getMosaicCanvas('waterShallow', [
     { key: 'waterShallow2', upTo: 0.52 },
-    { key: 'waterShallow1', upTo: 1, maxAlpha: 0.7 },
+    { key: 'waterShallow1', upTo: 1, maxCover: 0.85 },
   ], 20260812, 24);
 
   // Plage sèche : clair + moyen seulement (le ton humide est réservé à
@@ -464,7 +489,7 @@ window.Game = window.Game || {};
   // milieu du sable).
   const getSandPatternCanvas = () => getMosaicCanvas('sand', [
     { key: 'sandClair', upTo: 0.5 },
-    { key: 'sandMoyen', upTo: 1, maxAlpha: 0.55 },
+    { key: 'sandMoyen', upTo: 1, maxCover: 0.9 },
   ], 20260814, 24);
 
   const getWetSandPatternCanvas = () => getMosaicCanvas('sandWet', [
@@ -1178,6 +1203,11 @@ window.Game = window.Game || {};
     // Coin haut-gauche (canvas) de la case (col,row).
     const px = (col) => cx - MAP_OX + col * CELL;
     const py = (row) => cy - MAP_OY + row * CELL;
+    // Terrain sous un pixel du CANVAS (et non du monde).
+    const terrainAtCanvas = (x, y) => cellChar(
+      Math.floor((x - (cx - MAP_OX)) / CELL),
+      Math.floor((y - (cy - MAP_OY)) / CELL)
+    );
 
     // --- 1. l'eau ---------------------------------------------------
     const deepWaterCanvas = getDeepWaterPatternCanvas();
@@ -1220,24 +1250,79 @@ window.Game = window.Game || {};
       }
     };
 
+    // Distance (en cases) à la matière la plus proche vérifiant `test`,
+    // par double balayage en chanfrein (1 en droit, √2 en diagonale) :
+    // 0 dans la matière, puis croissante en s'en éloignant.
+    function cellDistanceField(test) {
+      const D = new Float32Array(MAP_W * MAP_H).fill(1e6);
+      for (let row = 0; row < MAP_H; row++) {
+        for (let col = 0; col < MAP_W; col++) {
+          if (test(col, row)) D[row * MAP_W + col] = 0;
+        }
+      }
+      const at = (c, r) => (c < 0 || r < 0 || c >= MAP_W || r >= MAP_H ? 1e6 : D[r * MAP_W + c]);
+      for (let row = 0; row < MAP_H; row++) {
+        for (let col = 0; col < MAP_W; col++) {
+          const i = row * MAP_W + col;
+          D[i] = Math.min(D[i], at(col - 1, row) + 1, at(col, row - 1) + 1,
+            at(col - 1, row - 1) + 1.414, at(col + 1, row - 1) + 1.414);
+        }
+      }
+      for (let row = MAP_H - 1; row >= 0; row--) {
+        for (let col = MAP_W - 1; col >= 0; col--) {
+          const i = row * MAP_W + col;
+          D[i] = Math.min(D[i], at(col + 1, row) + 1, at(col, row + 1) + 1,
+            at(col + 1, row + 1) + 1.414, at(col - 1, row + 1) + 1.414);
+        }
+      }
+      return D;
+    }
+
+    /** Couverture 0..1 d'une matière en un pixel : pleine dans la
+     * matière, décroissante sur `band` cases autour. L'échantillonnage
+     * bilinéaire du champ de distance donne une rampe régulière, que le
+     * tramage transforme ensuite en damier net. */
+    function coverageOf(test, band) {
+      const D = cellDistanceField(test);
+      const originX = cx - MAP_OX;
+      const originY = cy - MAP_OY;
+      const sample = (c, r) => (c < 0 || r < 0 || c >= MAP_W || r >= MAP_H ? 1e6 : D[r * MAP_W + c]);
+      return (x, y) => {
+        const fx = (x - originX) / CELL - 0.5;
+        const fy = (y - originY) / CELL - 0.5;
+        const c0 = Math.floor(fx);
+        const r0 = Math.floor(fy);
+        const tx = fx - c0;
+        const ty = fy - r0;
+        const d = sample(c0, r0) * (1 - tx) * (1 - ty)
+          + sample(c0 + 1, r0) * tx * (1 - ty)
+          + sample(c0, r0 + 1) * (1 - tx) * ty
+          + sample(c0 + 1, r0 + 1) * tx * ty;
+        if (d <= 0) return 1;
+        if (d >= band) return 0;
+        return 1 - d / band;
+      };
+    }
+
     // Large -> haut-fond : long fondu, la profondeur se perd doucement.
-    drawSoftLayer(ctx, w, h, shallowCanvas,
-      paintCells((col, row) => {
+    drawDitheredLayer(ctx, w, h, shallowCanvas,
+      coverageOf((col, row) => {
         const d = waterDist(col, row);
         return d > 0 && d <= SHALLOW_CELLS;
-      }), 18);
+      }, 2.2));
 
     // Écume : la première case d'eau au contact de la terre, adoucie.
-    const foam = getScratch('a', w, h);
+    // Écume : bande blanche translucide au contact de la terre, dont le
+    // bord extérieur se dissout en trame.
     (function drawFoam() {
-      const f = getScratch('b', w, h);
-      const fctx = f.getContext('2d');
-      fctx.fillStyle = 'rgba(255,255,255,0.38)';
-      if (typeof fctx.filter === 'string') fctx.filter = 'blur(5px)';
-      paintCells((col, row) => waterDist(col, row) === 1, 2)(fctx);
-      ctx.drawImage(f, 0, 0);
+      const cover = coverageOf((col, row) => waterDist(col, row) === 1, 1.6);
+      const mask = buildDitherMask(w, h, cover);
+      ctx.save();
+      ctx.globalAlpha = 0.42;
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.drawImage(mask, 0, 0);
+      ctx.restore();
     })();
-    void foam;
 
     // --- 2. pan rocheux de la côte ----------------------------------
     // Dessiné AVANT les cases de terre pour que la frange d'herbe du
@@ -1281,8 +1366,8 @@ window.Game = window.Game || {};
 
     // Base : l'herbe couvre toute l'île. Frontière NETTE avec l'eau (la
     // côte est une falaise, pas un dégradé) — d'où un masque non flouté.
-    drawSoftLayer(ctx, w, h, grassPatternCanvas,
-      paintCells((col, row) => isGroundChar(cellChar(col, row))), 0);
+    drawDitheredLayer(ctx, w, h, grassPatternCanvas,
+      (x, y) => (isGroundChar(terrainAtCanvas(x, y)) ? 1 : 0));
     if (!grassPatternCanvas) {
       // Repli tant que les textures ne sont pas chargées : aplat de vert
       // sur les seules cases d'île.
@@ -1306,16 +1391,16 @@ window.Game = window.Game || {};
       ctx.fillStyle = sandGrad;
       paintCells((col, row) => cellChar(col, row) === 's' || cellChar(col, row) === 'd')(ctx);
     }
-    drawSoftLayer(ctx, w, h, sandCanvas,
-      paintCells((col, row) => cellChar(col, row) === 's'), 13, landMask);
-    drawSoftLayer(ctx, w, h, wetCanvas,
-      paintCells((col, row) => cellChar(col, row) === 'd'), 11, landMask);
-    drawSoftLayer(ctx, w, h, wetCanvas,
-      paintCells(isWetSand), 9, landMask);
-    drawSoftLayer(ctx, w, h, wetCanvas,
-      paintCells(isPondShore), 8, landMask);
-    drawSoftLayer(ctx, w, h, shallowCanvas,
-      paintCells((col, row) => cellChar(col, row) === 'o'), 7, landMask);
+    drawDitheredLayer(ctx, w, h, sandCanvas,
+      coverageOf((col, row) => cellChar(col, row) === 's', 1.2), landMask);
+    drawDitheredLayer(ctx, w, h, wetCanvas,
+      coverageOf((col, row) => cellChar(col, row) === 'd', 1), landMask);
+    drawDitheredLayer(ctx, w, h, wetCanvas,
+      coverageOf(isWetSand, 0.85), landMask);
+    drawDitheredLayer(ctx, w, h, wetCanvas,
+      coverageOf(isPondShore, 0.75), landMask);
+    drawDitheredLayer(ctx, w, h, shallowCanvas,
+      coverageOf((col, row) => cellChar(col, row) === 'o', 0.6), landMask);
 
     // Ombrage général : léger halo clair au centre, coins assombris.
     ctx.save();
