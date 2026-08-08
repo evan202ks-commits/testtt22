@@ -64,6 +64,7 @@ window.Game = window.Game || {};
     leafTree: { url: withVersion('/assets/sprites/trees/leaf_tree.png'), w: 156, h: 187 },
     leafTreeBig: { url: withVersion('/assets/sprites/trees/leaf_tree_big.png'), w: 168, h: 198 },
     pine: { url: withVersion('/assets/sprites/trees/pine.png'), w: 119, h: 194 },
+    // pineBig retiré du décor : sa silhouette écrasait tout le reste.
     pineBig: { url: withVersion('/assets/sprites/trees/pine_big.png'), w: 147, h: 203 },
     fruitTree: { url: withVersion('/assets/sprites/trees/fruit_tree.png'), w: 145, h: 156 },
     deadTree: { url: withVersion('/assets/sprites/trees/dead_tree.png'), w: 122, h: 154 },
@@ -321,54 +322,128 @@ window.Game = window.Game || {};
     canvas.height = H;
     const gctx = canvas.getContext('2d');
 
-    // Bruit volontairement BASSE fréquence : une cellule de bruit couvre
-    // plusieurs cases, sinon on obtient un damier au lieu de zones nettes.
     const GRID_COARSE = 5;
     const GRID_FINE = 10;
     const noiseA = makeValueNoise(GRID_COARSE, seed);
     const noiseB = makeValueNoise(GRID_FINE, seed + 1);
     const noiseC = makeValueNoise(GRID_COARSE, seed + 2);
 
-    function noiseAt(px, py) {
+    function noiseAt(x, y) {
       const n =
-        noiseA((px / W) * GRID_COARSE, (py / H) * GRID_COARSE) * 0.88 +
-        noiseB((px / W) * GRID_FINE, (py / H) * GRID_FINE) * 0.12;
-      const m = noiseC((px / W) * GRID_COARSE, (py / H) * GRID_COARSE);
+        noiseA((x / W) * GRID_COARSE, (y / H) * GRID_COARSE) * 0.88 +
+        noiseB((x / W) * GRID_FINE, (y / H) * GRID_FINE) * 0.12;
+      const m = noiseC((x / W) * GRID_COARSE, (y / H) * GRID_COARSE);
       return n * 0.78 + m * 0.22;
     }
 
-    // Un CanvasPattern par ton, tous calés sur l'origine du canvas : deux
-    // cases voisines du même ton restent parfaitement raccordées, seule
-    // la frontière entre deux tons différents se voit.
+    // Fond = premier ton, puis chaque ton suivant est peint PAR-DESSUS en
+    // opacité variable : plus le bruit dépasse le seuil du ton, plus il
+    // couvre. Les tons se fondent donc les uns dans les autres au lieu de
+    // se découper en cases — c'est ce qui uniformise le sol.
+    // BLEND_STEP = finesse du dégradé (petit = doux mais plus long à
+    // construire), MAX_ALPHA < 1 pour qu'un ton ne remplace jamais
+    // totalement le fond : les variations restent des nuances.
+    const BLEND_STEP = 6;
+    const smoothstep = (edge0, edge1, x) => {
+      const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+      return t * t * (3 - 2 * t);
+    };
+
     const patterns = {};
     layers.forEach((l) => {
       if (!patterns[l.key]) patterns[l.key] = gctx.createPattern(getNormalizedTile(l.key), 'repeat');
     });
 
-    for (let py = 0; py < H; py += TERRAIN_CELL) {
-      for (let px = 0; px < W; px += TERRAIN_CELL) {
-        const t = noiseAt(px + TERRAIN_CELL / 2, py + TERRAIN_CELL / 2);
-        let chosen = layers[layers.length - 1];
-        for (const l of layers) {
-          if (t < l.upTo) { chosen = l; break; }
+    gctx.fillStyle = patterns[layers[0].key];
+    gctx.fillRect(0, 0, W, H);
+
+    for (let i = 1; i < layers.length; i++) {
+      const layer = layers[i];
+      const from = layers[i - 1].upTo;          // seuil d'apparition
+      const to = Math.min(1, layer.upTo + 0.06); // couverture maximale
+      const maxAlpha = layer.maxAlpha != null ? layer.maxAlpha : 0.85;
+      gctx.fillStyle = patterns[layer.key];
+      for (let y = 0; y < H; y += BLEND_STEP) {
+        for (let x = 0; x < W; x += BLEND_STEP) {
+          const a = smoothstep(from, to, noiseAt(x + BLEND_STEP / 2, y + BLEND_STEP / 2)) * maxAlpha;
+          if (a < 0.02) continue;
+          gctx.globalAlpha = a;
+          gctx.fillRect(x, y, BLEND_STEP, BLEND_STEP);
         }
-        gctx.fillStyle = patterns[chosen.key];
-        gctx.fillRect(px, py, TERRAIN_CELL, TERRAIN_CELL);
       }
+      gctx.globalAlpha = 1;
     }
 
     _mosaicCache[id] = canvas;
     return canvas;
   }
 
-  // Mosaïques du monde. Seeds fixes : même découpe à chaque partie.
-  // grassDense / waterDeep3 / sandHumide restent rares (seuil haut) →
-  // petites taches isolées plutôt qu'un damier.
+  // ------------------------------------------------------------------
+  // Fondu entre deux MATIÈRES (herbe/sable, sable sec/mouillé, large/
+  // haut-fond…). Le principe : on peint la matière sur un calque, on lui
+  // applique un masque flouté (les cases concernées, adoucies au flou),
+  // puis on colle le calque. La frontière devient un dégradé au lieu
+  // d'un escalier de cases — sans toucher au trait net de la côte, qui
+  // lui reste franc puisque son masque n'est pas flouté.
+  // ------------------------------------------------------------------
+  let _scratchA = null;
+  let _scratchB = null;
+  function getScratch(which, w, h) {
+    const ref = which === 'a' ? _scratchA : _scratchB;
+    if (ref && ref.width === w && ref.height === h) {
+      ref.getContext('2d').clearRect(0, 0, w, h);
+      return ref;
+    }
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    if (which === 'a') _scratchA = c; else _scratchB = c;
+    return c;
+  }
+
+  /**
+   * @param ctx        contexte du canvas de sol
+   * @param source     canvas de texture à répéter
+   * @param paintMask  fonction(ctx2d) qui peint en blanc les cases visées
+   * @param blurPx     rayon du fondu (0 = frontière nette)
+   * @param clipMask   masque net optionnel (ex. la terre) pour empêcher
+   *                   le flou de baver hors de l'île
+   */
+  function drawSoftLayer(ctx, w, h, source, paintMask, blurPx, clipMask) {
+    if (!source) return;
+    const mask = getScratch('a', w, h);
+    const mctx = mask.getContext('2d');
+    mctx.save();
+    if (blurPx && typeof mctx.filter === 'string') mctx.filter = `blur(${blurPx}px)`;
+    mctx.fillStyle = '#ffffff';
+    paintMask(mctx);
+    mctx.restore();
+    if (clipMask) {
+      mctx.save();
+      mctx.globalCompositeOperation = 'destination-in';
+      mctx.drawImage(clipMask, 0, 0);
+      mctx.restore();
+    }
+
+    const layer = getScratch('b', w, h);
+    const lctx = layer.getContext('2d');
+    lctx.fillStyle = lctx.createPattern(source, 'repeat');
+    lctx.fillRect(0, 0, w, h);
+    lctx.globalCompositeOperation = 'destination-in';
+    lctx.drawImage(mask, 0, 0);
+    lctx.globalCompositeOperation = 'source-over';
+
+    ctx.drawImage(layer, 0, 0);
+  }
+
+  // Herbe : un ton de fond (moyenne) et trois nuances qui s'y fondent
+  // sans jamais le couvrir complètement (maxAlpha) — l'herbe reste lue
+  // comme UNE matière, avec des variations, au lieu d'un patchwork.
   const getGrassPatternCanvas = () => getMosaicCanvas('grass', [
-    { key: 'grassSombre', upTo: 0.40 },
-    { key: 'grassMoyenne', upTo: 0.58 },
-    { key: 'grassClaire', upTo: 0.75 },
-    { key: 'grassDense', upTo: 1 },
+    { key: 'grassMoyenne', upTo: 0.42 },
+    { key: 'grassSombre', upTo: 0.58, maxAlpha: 0.55 },
+    { key: 'grassClaire', upTo: 0.78, maxAlpha: 0.6 },
+    { key: 'grassDense', upTo: 1, maxAlpha: 0.85 },
   ], 20260805);
 
   // Au large on ne mélange que les deux bleus sombres : la 3e tuile
@@ -376,20 +451,20 @@ window.Game = window.Game || {};
   // éclats de lumière viennent des décals "reflets" à la place.
   const getDeepWaterPatternCanvas = () => getMosaicCanvas('waterDeep', [
     { key: 'waterDeep2', upTo: 0.5 },
-    { key: 'waterDeep1', upTo: 1 },
+    { key: 'waterDeep1', upTo: 1, maxAlpha: 0.7 },
   ], 20260810, 32);
 
   const getShallowWaterPatternCanvas = () => getMosaicCanvas('waterShallow', [
     { key: 'waterShallow2', upTo: 0.52 },
-    { key: 'waterShallow1', upTo: 1 },
+    { key: 'waterShallow1', upTo: 1, maxAlpha: 0.7 },
   ], 20260812, 24);
 
   // Plage sèche : clair + moyen seulement (le ton humide est réservé à
   // la rangée qui touche l'eau, sinon il fait des taches sombres au
   // milieu du sable).
   const getSandPatternCanvas = () => getMosaicCanvas('sand', [
-    { key: 'sandMoyen', upTo: 0.45 },
-    { key: 'sandClair', upTo: 1 },
+    { key: 'sandClair', upTo: 0.5 },
+    { key: 'sandMoyen', upTo: 1, maxAlpha: 0.55 },
   ], 20260814, 24);
 
   const getWetSandPatternCanvas = () => getMosaicCanvas('sandWet', [
@@ -1120,24 +1195,49 @@ window.Game = window.Game || {};
     }
 
     const shallowCanvas = getShallowWaterPatternCanvas();
-    const shallowPattern = shallowCanvas ? ctx.createPattern(shallowCanvas, 'repeat') : null;
-    const SHALLOW_CELLS = 4; // largeur du haut-fond autour de l'île
-    if (shallowPattern) {
-      ctx.fillStyle = shallowPattern;
+    const SHALLOW_CELLS = 5; // largeur du haut-fond autour de l'île
+
+    // Masque net de l'île : sert à empêcher les fondus de baver sur l'eau.
+    const landMask = document.createElement('canvas');
+    landMask.width = w;
+    landMask.height = h;
+    (function paintLandMask() {
+      const m = landMask.getContext('2d');
+      m.fillStyle = '#ffffff';
       for (let row = 0; row < MAP_H; row++) {
         for (let col = 0; col < MAP_W; col++) {
-          const d = waterDist(col, row);
-          if (d > 0 && d <= SHALLOW_CELLS) ctx.fillRect(px(col), py(row), CELL, CELL);
+          if (isGroundChar(cellChar(col, row))) m.fillRect(px(col), py(row), CELL, CELL);
         }
       }
-    }
-    // Écume : la première case d'eau au contact de la terre.
-    ctx.fillStyle = 'rgba(255,255,255,0.42)';
-    for (let row = 0; row < MAP_H; row++) {
-      for (let col = 0; col < MAP_W; col++) {
-        if (waterDist(col, row) === 1) ctx.fillRect(px(col), py(row), CELL, CELL);
+    })();
+
+    const paintCells = (test, grow) => (m) => {
+      const g = grow || 0;
+      for (let row = 0; row < MAP_H; row++) {
+        for (let col = 0; col < MAP_W; col++) {
+          if (test(col, row)) m.fillRect(px(col) - g, py(row) - g, CELL + g * 2, CELL + g * 2);
+        }
       }
-    }
+    };
+
+    // Large -> haut-fond : long fondu, la profondeur se perd doucement.
+    drawSoftLayer(ctx, w, h, shallowCanvas,
+      paintCells((col, row) => {
+        const d = waterDist(col, row);
+        return d > 0 && d <= SHALLOW_CELLS;
+      }), 18);
+
+    // Écume : la première case d'eau au contact de la terre, adoucie.
+    const foam = getScratch('a', w, h);
+    (function drawFoam() {
+      const f = getScratch('b', w, h);
+      const fctx = f.getContext('2d');
+      fctx.fillStyle = 'rgba(255,255,255,0.38)';
+      if (typeof fctx.filter === 'string') fctx.filter = 'blur(5px)';
+      paintCells((col, row) => waterDist(col, row) === 1, 2)(fctx);
+      ctx.drawImage(f, 0, 0);
+    })();
+    void foam;
 
     // --- 2. pan rocheux de la côte ----------------------------------
     // Dessiné AVANT les cases de terre pour que la frange d'herbe du
@@ -1173,44 +1273,49 @@ window.Game = window.Game || {};
     const grassGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(world.halfWidth, world.halfHeight));
     grassGrad.addColorStop(0, hex(world.groundColor));
     grassGrad.addColorStop(1, hex(world.groundColor2));
-    const grassPattern = grassPatternCanvas ? ctx.createPattern(grassPatternCanvas, 'repeat') : grassGrad;
     const sandCanvas = getSandPatternCanvas();
     const sandGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(world.halfWidth, world.halfHeight));
     sandGrad.addColorStop(0, hex(world.sandColor));
     sandGrad.addColorStop(1, hex(world.sandColor2));
-    const sandPattern = sandCanvas ? ctx.createPattern(sandCanvas, 'repeat') : sandGrad;
     const wetCanvas = getWetSandPatternCanvas();
-    const wetPattern = wetCanvas ? ctx.createPattern(wetCanvas, 'repeat') : sandGrad;
 
-    const fillFor = (ch, col, row) => {
-      if (ch === 's') {
-        // Sable mouillé sur la rangée qui touche l'eau.
-        const wet = !isLandChar(cellChar(col + 1, row)) || !isLandChar(cellChar(col - 1, row))
-          || !isLandChar(cellChar(col, row + 1)) || !isLandChar(cellChar(col, row - 1));
-        return wet ? wetPattern : sandPattern;
-      }
-      if (ch === 'd') return wetPattern; // chemin de terre battue
-      if (ch === 'o') return shallowPattern || waterGrad; // étang
-      return grassPattern;
+    // Base : l'herbe couvre toute l'île. Frontière NETTE avec l'eau (la
+    // côte est une falaise, pas un dégradé) — d'où un masque non flouté.
+    drawSoftLayer(ctx, w, h, grassPatternCanvas,
+      paintCells((col, row) => isGroundChar(cellChar(col, row))), 0);
+    if (!grassPatternCanvas) {
+      // Repli tant que les textures ne sont pas chargées : aplat de vert
+      // sur les seules cases d'île.
+      ctx.fillStyle = grassGrad;
+      paintCells((col, row) => isGroundChar(cellChar(col, row)))(ctx);
+    }
+
+    // Puis chaque matière se fond dans l'herbe : plage, chemins, sable
+    // mouillé au bord de l'eau, étang. Tous clippés à l'île (landMask)
+    // pour que le flou ne déborde pas dans la mer.
+    const isWetSand = (col, row) => {
+      if (cellChar(col, row) !== 's') return false;
+      return !isLandChar(cellChar(col + 1, row)) || !isLandChar(cellChar(col - 1, row))
+        || !isLandChar(cellChar(col, row + 1)) || !isLandChar(cellChar(col, row - 1));
     };
-    for (let row = 0; row < MAP_H; row++) {
-      for (let col = 0; col < MAP_W; col++) {
-        const ch = cellChar(col, row);
-        if (!isGroundChar(ch)) continue;
-        ctx.fillStyle = fillFor(ch, col, row);
-        ctx.fillRect(px(col), py(row), CELL, CELL);
-      }
+    const isPondShore = (col, row) => cellChar(col, row) === '.'
+      && (cellChar(col + 1, row) === 'o' || cellChar(col - 1, row) === 'o'
+        || cellChar(col, row + 1) === 'o' || cellChar(col, row - 1) === 'o');
+
+    if (!sandCanvas) {
+      ctx.fillStyle = sandGrad;
+      paintCells((col, row) => cellChar(col, row) === 's' || cellChar(col, row) === 'd')(ctx);
     }
-    // Rive de sable mouillé autour de l'étang.
-    ctx.fillStyle = wetPattern;
-    for (let row = 0; row < MAP_H; row++) {
-      for (let col = 0; col < MAP_W; col++) {
-        if (cellChar(col, row) !== '.') continue;
-        const nearPond = cellChar(col + 1, row) === 'o' || cellChar(col - 1, row) === 'o'
-          || cellChar(col, row + 1) === 'o' || cellChar(col, row - 1) === 'o';
-        if (nearPond) ctx.fillRect(px(col), py(row), CELL, CELL);
-      }
-    }
+    drawSoftLayer(ctx, w, h, sandCanvas,
+      paintCells((col, row) => cellChar(col, row) === 's'), 13, landMask);
+    drawSoftLayer(ctx, w, h, wetCanvas,
+      paintCells((col, row) => cellChar(col, row) === 'd'), 11, landMask);
+    drawSoftLayer(ctx, w, h, wetCanvas,
+      paintCells(isWetSand), 9, landMask);
+    drawSoftLayer(ctx, w, h, wetCanvas,
+      paintCells(isPondShore), 8, landMask);
+    drawSoftLayer(ctx, w, h, shallowCanvas,
+      paintCells((col, row) => cellChar(col, row) === 'o'), 7, landMask);
 
     // Ombrage général : léger halo clair au centre, coins assombris.
     ctx.save();
